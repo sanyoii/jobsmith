@@ -360,9 +360,28 @@ def test_work_modes_parse_and_match():
     assert work_modes.parse_keys("onsite, remote,bogus,onsite") == ["onsite", "remote"]
     assert work_modes.parse_keys("") == []
     assert work_modes.match("onsite", []) is True          # 沒選 → 不限
-    assert work_modes.match(None, ["remote"]) is True       # 未知資料 → 不誤殺
+    assert work_modes.match(None, ["remote"]) is False      # 未知 → 嚴格擋（07-10 改版：precision 優先）
+    assert work_modes.match(None, []) is True               # 沒選時未知照樣通過
     assert work_modes.match("onsite", ["remote"]) is False  # 不符合 → 濾掉
     assert work_modes.match("remote", ["remote", "hybrid"]) is True
+
+
+def test_work_modes_infer_and_effective():
+    from app.sources import work_modes
+    # 推斷：標題/地點關鍵字
+    assert work_modes.infer("Senior QA Engineer (Remote)") == "remote"
+    assert work_modes.infer("後端工程師", "台北・全遠端") == "remote"
+    assert work_modes.infer("QA 工程師（在家工作）") == "remote"
+    # hybrid 優先：hybrid 敘述常同時含遠端字樣
+    assert work_modes.infer("工程師", "台北（部分遠端）") == "hybrid"
+    assert work_modes.infer("Engineer, hybrid remote ok") == "hybrid"
+    # 無信號 → None
+    assert work_modes.infer("資深後端工程師", "台北市信義區") is None
+    assert work_modes.infer(None, "") is None
+    # effective：來源標示優先，None 才推斷
+    assert work_modes.effective("onsite", "Remote OK") == "onsite"
+    assert work_modes.effective(None, "Remote OK") == "remote"
+    assert work_modes.effective(None, "純現場職缺", "台北") is None
 
 
 def test_source_dejob_blocked_on_error(monkeypatch):

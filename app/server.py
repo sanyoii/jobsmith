@@ -464,7 +464,9 @@ def jobs_auto(
                     # 104 已於來源端用 area 篩過；其餘來源在結果端依 location 過濾，地區一致生效。
                     kept = [j for j in res.jobs
                             if (res.source == "104" or regions.match_location(j.location, region_keys))
-                            and work_modes.match(j.work_mode, work_mode_keys)]
+                            and work_modes.match(
+                                work_modes.effective(j.work_mode, j.title, j.location),
+                                work_mode_keys)]
                     yield _sse({"type": "source", "source": res.source,
                                 "count": len(kept), "blocked": res.blocked})
                     for j in kept:

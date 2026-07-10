@@ -822,7 +822,10 @@ def test_jobs_auto_region_filters_uniformly(monkeypatch):
 
 
 def test_jobs_auto_work_mode_filters(monkeypatch):
-    """選工作形式：符合的職缺留下；work_mode=None（未知）一律保留（不因缺資料誤殺）。"""
+    """選工作形式：來源標示優先；None 用標題/地點推斷補；推斷後仍未知 → 擋（precision 優先）。
+
+    迴歸：舊行為 None 一律放行，選「全遠端」時 cake/yourator/linkedin（全 None）整批混入。
+    """
     from app.models import JobMatch, JobPosting, Profile, SearchResult
     monkeypatch.setattr(server_mod, "structure_profile",
                         lambda text: Profile(name="王", summary="後端", raw_text=text))
@@ -836,6 +839,10 @@ def test_jobs_auto_work_mode_filters(monkeypatch):
             ]),
             SearchResult(source="cake", jobs=[
                 JobPosting(source="cake", title="未知工作形式", company="C", url="u3", work_mode=None),
+                JobPosting(source="cake", title="Backend Engineer (Remote)", company="D", url="u4",
+                           work_mode=None),
+                JobPosting(source="cake", title="QA Engineer", company="E", url="u5",
+                           work_mode=None, location="台北（部分遠端）"),
             ]),
         ]
     monkeypatch.setattr(server_mod, "search_all", fake_search)
@@ -845,9 +852,11 @@ def test_jobs_auto_work_mode_filters(monkeypatch):
     r = client.post("/api/jobs/auto", data={"resume_text": "x", "work_mode": "remote"})
     events = _parse_sse(r.text)
     titles = {m["job"]["title"] for e in events if e["type"] == "ranked_batch" for m in e["data"]}
-    assert "全遠端職缺" in titles       # work_mode=remote → 留下
-    assert "現場職缺" not in titles     # work_mode=onsite，篩 remote 時濾掉
-    assert "未知工作形式" in titles     # work_mode=None → 不誤殺，保留
+    assert "全遠端職缺" in titles                # 來源標 remote → 留下
+    assert "現場職缺" not in titles              # 來源標 onsite → 濾掉
+    assert "未知工作形式" not in titles          # None 且無文字信號 → 嚴格擋下（行為改版重點）
+    assert "Backend Engineer (Remote)" in titles  # None 但標題推斷 remote → 留下
+    assert "QA Engineer" not in titles           # 地點推斷 hybrid，篩 remote → 濾掉
 
 
 def test_pipeline_chat_resume_applies_update(monkeypatch):
