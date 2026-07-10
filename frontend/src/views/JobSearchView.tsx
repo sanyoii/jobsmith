@@ -13,7 +13,7 @@ import { Button } from "../ui/Button"
 import { Badge } from "../ui/Badge"
 import { Skeleton } from "../ui/Skeleton"
 import { EmptyState } from "../ui/EmptyState"
-import { Search, Upload, Loader2, ExternalLink, AlertTriangle, CheckCircle2, XCircle, Building2, Layers, MapPin, Briefcase, X, UserRound } from "../ui/icons"
+import { Search, Upload, Loader2, ExternalLink, AlertTriangle, CheckCircle2, XCircle, Building2, Layers, MapPin, Briefcase, X, UserRound, KeyRound } from "../ui/icons"
 
 const SNAP_KEY = "copilot.jobsearch.v1"  // 上次搜尋結果快取（重新整理/重開沿用）
 
@@ -69,6 +69,7 @@ export function JobSearchView(
   const [done, setDone] = useState(false)
   const [status, setStatus] = useState("")
   const [queries, setQueries] = useState<string[]>([])
+  const [customQueries, setCustomQueries] = useState<string[]>([])  // queries 中哪些是使用者自訂（Badge 區分用）
   const [sources, setSources] = useState<SourceStat[]>([])
   const [jobs, setJobs] = useState<JobMatch[]>([])
   const [companyJobs, setCompanyJobs] = useState<JobMatch[]>([])
@@ -83,6 +84,8 @@ export function JobSearchView(
   const [error, setError] = useState("")
   const [companies, setCompanies] = useState<string[]>([])
   const [companyInput, setCompanyInput] = useState("")
+  const [keywords, setKeywords] = useState<string[]>([])  // 使用者自訂搜尋關鍵字（最多 3 組，與系統推導合併搜尋）
+  const [keywordInput, setKeywordInput] = useState("")
   const [file, setFile] = useState<File | null>(null)
   const [searchedCompanies, setSearchedCompanies] = useState<string[]>([])
   const [pages, setPages] = useState(2)  // 每個來源抓幾頁（越多越全、但越慢）
@@ -100,9 +103,11 @@ export function JobSearchView(
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (typeof s.text === "string") setText(s.text)
       if (Array.isArray(s.companies)) setCompanies(s.companies)
+      if (Array.isArray(s.keywords)) setKeywords(s.keywords)
       if (Array.isArray(s.jobs)) setJobs(s.jobs)
       if (Array.isArray(s.companyJobs)) setCompanyJobs(s.companyJobs)
       if (Array.isArray(s.queries)) setQueries(s.queries)
+      if (Array.isArray(s.customQueries)) setCustomQueries(s.customQueries)
       if (Array.isArray(s.sources)) setSources(s.sources)
       if (typeof s.linkedin === "string") setLinkedin(s.linkedin)
       if (typeof s.fallback === "boolean") setFallback(s.fallback)
@@ -122,12 +127,12 @@ export function JobSearchView(
     if (!done) return
     try {
       localStorage.setItem(SNAP_KEY, JSON.stringify({
-        text, companies, jobs, companyJobs, queries, sources,
+        text, companies, keywords, jobs, companyJobs, queries, customQueries, sources,
         linkedin, fallback, searchedCompanies, profile, pages, regions, workModes,
       }))
     } catch { /* localStorage 不可用/已滿則略過 */ }
-  }, [done, jobs, companyJobs, queries, sources, linkedin, fallback,
-      searchedCompanies, profile, text, companies, pages, regions, workModes])
+  }, [done, jobs, companyJobs, queries, customQueries, sources, linkedin, fallback,
+      searchedCompanies, profile, text, companies, keywords, pages, regions, workModes])
 
   // 回報是否已有結果，App 才知道要不要在右上角顯示「收合搜尋條件」鈕。
   useEffect(() => {
@@ -149,6 +154,22 @@ export function JobSearchView(
       e.preventDefault(); addCompany(companyInput)
     } else if (e.key === "Backspace" && !companyInput && companies.length) {
       setCompanies((c) => c.slice(0, -1))
+    }
+  }
+  function addKeyword(kw: string) {
+    const n = kw.trim()
+    if (!n || keywords.length >= 3) return
+    setKeywords((k) => (k.includes(n) ? k : [...k, n]))
+    setKeywordInput("")
+  }
+  function removeKeyword(kw: string) {
+    setKeywords((k) => k.filter((x) => x !== kw))
+  }
+  function onKeywordKey(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === "," || e.key === "，" || e.key === "、") {
+      e.preventDefault(); addKeyword(keywordInput)
+    } else if (e.key === "Backspace" && !keywordInput && keywords.length) {
+      setKeywords((k) => k.slice(0, -1))
     }
   }
   function toggleRegion(k: string) {
@@ -194,6 +215,12 @@ export function JobSearchView(
     if (cs.length) form.append("companies", cs.join(","))
     setSearchedCompanies(cs)
 
+    const kwTrailing = keywordInput.trim()
+    const ks = kwTrailing && keywords.length < 3 && !keywords.includes(kwTrailing)
+      ? [...keywords, kwTrailing] : keywords
+    if (ks !== keywords) { setKeywords(ks); setKeywordInput("") }
+    if (ks.length) form.append("keywords", ks.join(","))
+
     if (taskIdRef.current) void stopTask(taskIdRef.current).catch(() => undefined)
     abortRef.current?.abort()  // 取消上一個還沒跑完的搜尋，避免兩條串流交錯進同一個 acc
     const ctrl = new AbortController()
@@ -203,7 +230,7 @@ export function JobSearchView(
     taskIdRef.current = taskId
     stoppingRef.current = false
 
-    setBusy(true); setDone(false); setError(""); setJobs([]); setCompanyJobs([]); setQueries([]); setSources([])
+    setBusy(true); setDone(false); setError(""); setJobs([]); setCompanyJobs([]); setQueries([]); setCustomQueries([]); setSources([])
     setLinkedin(""); setProfile(null); setBlockedNote(""); setFallback(false); setRankTotal(0)
     setStatus(opts.initialStatus || "上傳中…")
     // 串流累積（供完成後存檔；state 更新非同步，存檔讀這裡的即時值）。
@@ -220,7 +247,7 @@ export function JobSearchView(
             onProfile?.(ev.data as UserProfile, { resumeLabel })
           }
         }
-        else if (ev.type === "queries") { acc.queries = ev.queries; setQueries(ev.queries) }
+        else if (ev.type === "queries") { acc.queries = ev.queries; setQueries(ev.queries); setCustomQueries(ev.custom || []) }
         else if (ev.type === "source") { acc.sources = mergeSource(acc.sources, ev); setSources((s) => mergeSource(s, ev)) }
         else if (ev.type === "all_blocked") setBlockedNote(ev.message)
         else if (ev.type === "rank_start") { acc.fallback = Boolean(ev.fallback); setFallback(Boolean(ev.fallback)); setRankTotal(ev.total || 0); acc.jobs = []; setJobs([]) }
@@ -378,6 +405,34 @@ export function JobSearchView(
           <p className="text-xs text-slate-400 mt-1">這些公司在各職缺平台與官網 careers 的開缺，會列在下方「指定公司的職缺」獨立區塊。</p>
         </div>
 
+        <div className="mt-4">
+          <label className="text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1.5">
+            <KeyRound className="w-4 h-4 text-slate-400" />自訂搜尋關鍵字（選填，最多 3 組）
+          </label>
+          <div className="flex flex-wrap items-center gap-1.5 border border-slate-300 rounded-lg px-2 py-1.5 focus-within:ring-2 focus-within:ring-brand-200">
+            {keywords.map((k) => (
+              <span key={k} className="inline-flex items-center gap-1 bg-brand-50 text-brand-700 rounded-md pl-2 pr-1 py-0.5 text-sm">
+                {k}
+                <button type="button" onClick={() => removeKeyword(k)} aria-label={`移除 ${k}`}
+                  className="rounded hover:bg-brand-100 p-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+            <input
+              value={keywordInput}
+              onChange={(e) => setKeywordInput(e.target.value)}
+              onKeyDown={onKeywordKey}
+              onBlur={() => addKeyword(keywordInput)}
+              disabled={busy || keywords.length >= 3}
+              aria-label="新增自訂搜尋關鍵字"
+              placeholder={keywords.length ? "再加一組…" : "自訂關鍵字（選填）：例如 QA Automation，按 Enter 新增"}
+              className="flex-1 min-w-[10rem] bg-transparent text-sm py-0.5 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          <p className="text-xs text-slate-400 mt-1">與 AI 從履歷推導的關鍵字合併搜尋（自訂優先、逐字搜尋），總計最多 5 組。</p>
+        </div>
+
         <div className="mt-4 flex items-center gap-2 text-sm">
           <label htmlFor="pages-select" className="font-medium text-slate-700 flex items-center gap-1.5">
             <Layers className="w-4 h-4 text-slate-400" />每個來源抓幾頁
@@ -458,7 +513,9 @@ export function JobSearchView(
         {queries.length > 0 && (
           <div className="mt-3 text-sm text-slate-600 flex flex-wrap items-center gap-1.5">
             <span className="text-slate-500">搜尋關鍵字：</span>
-            {queries.map((q, i) => <Badge key={i} tone="slate">{q}</Badge>)}
+            {queries.map((q, i) => (
+              <Badge key={i} tone={customQueries.includes(q) ? "brand" : "slate"}>{q}</Badge>
+            ))}
           </div>
         )}
         {sources.length > 0 && (

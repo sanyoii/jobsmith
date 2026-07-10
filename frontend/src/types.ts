@@ -120,7 +120,7 @@ export type JobsAutoEvent =
   | { type: "start"; task_id?: string }
   | { type: "progress"; step: string; message: string }
   | { type: "profile"; data: UserProfile }
-  | { type: "queries"; queries: string[] }
+  | { type: "queries"; queries: string[]; custom: string[] }
   | { type: "source"; source: string; count: number; blocked: boolean }
   | { type: "all_blocked"; message: string }
   | { type: "rank_start"; total: number; fallback: boolean }

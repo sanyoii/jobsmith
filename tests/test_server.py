@@ -950,6 +950,48 @@ def test_jobs_auto_without_companies_skips_company_lookup(monkeypatch):
     assert called["n"] == 0  # 沒填公司名單就不查公司
 
 
+def test_jobs_auto_custom_keywords_merged(monkeypatch):
+    """自訂關鍵字排前、系統推導補後，SSE queries 事件用 custom 欄位標記哪些是自訂。"""
+    from app.models import Profile, SearchResult
+    monkeypatch.setattr(server_mod, "structure_profile",
+                        lambda text: Profile(name="王", summary="後端", raw_text=text))
+    monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["後端工程師", "Python 後端"])
+    monkeypatch.setattr(server_mod, "search_all",
+                        lambda q, limit=15, pages=1, area=None: [SearchResult(source="104", jobs=[])])
+    monkeypatch.setattr(server_mod, "rank_jobs", lambda profile, jobs, top_k=None: [])
+
+    client = TestClient(server_mod.app)
+    r = client.post("/api/jobs/auto", data={
+        "resume_text": "我的履歷",
+        "keywords": "QA Automation,SDET",
+    })
+    events = _parse_sse(r.text)
+    qev = next(e for e in events if e["type"] == "queries")
+    assert qev["queries"] == ["QA Automation", "SDET", "後端工程師", "Python 後端"]
+    assert qev["custom"] == ["QA Automation", "SDET"]
+
+
+def test_jobs_auto_custom_keywords_dedupe_and_cap(monkeypatch):
+    """自訂關鍵字超過 3 組時切 3；與推導詞重複者（大小寫不敏感）從推導清單濾掉。"""
+    from app.models import Profile, SearchResult
+    monkeypatch.setattr(server_mod, "structure_profile",
+                        lambda text: Profile(name="王", summary="後端", raw_text=text))
+    monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["qa automation", "後端工程師"])
+    monkeypatch.setattr(server_mod, "search_all",
+                        lambda q, limit=15, pages=1, area=None: [SearchResult(source="104", jobs=[])])
+    monkeypatch.setattr(server_mod, "rank_jobs", lambda profile, jobs, top_k=None: [])
+
+    client = TestClient(server_mod.app)
+    r = client.post("/api/jobs/auto", data={
+        "resume_text": "我的履歷",
+        "keywords": "QA Automation,SDET,Test Engineer,第四組",
+    })
+    events = _parse_sse(r.text)
+    qev = next(e for e in events if e["type"] == "queries")
+    assert qev["custom"] == ["QA Automation", "SDET", "Test Engineer"]        # 切 3，「第四組」被丟棄
+    assert qev["queries"] == ["QA Automation", "SDET", "Test Engineer", "後端工程師"]  # 大小寫不敏感去重、無重複
+
+
 def test_resume_upload_guard_rejects_js_rendered_html():
     # 迴歸：Claude artifact「bundled」HTML 真內容藏在 <script> 字串裡，bs4 剝殼後只剩佔位字。
     # 舊行為：25 字元垃圾靜默通過、下游照跑職缺搜尋。新行為：低於門檻硬停、回明確錯誤含實際字數。

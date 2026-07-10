@@ -398,12 +398,26 @@ def _parse_companies(raw: str) -> list[str]:
     return out
 
 
+def _parse_keywords(raw: str) -> list[str]:
+    """把使用者自訂的搜尋關鍵字字串切成乾淨清單：trim、去空、去重（大小寫不敏感）、切 3。"""
+    import re
+    out: list[str] = []
+    seen_lower: set[str] = set()
+    for part in re.split(r"[,，、\n]", raw or ""):
+        kw = part.strip()
+        if kw and kw.lower() not in seen_lower:
+            seen_lower.add(kw.lower())
+            out.append(kw)
+    return out[:3]
+
+
 @app.post("/api/jobs/auto")
 def jobs_auto(
     file: UploadFile | None = File(default=None),
     resume_text: str = Form(default=""),
     profile_json: str = Form(default=""),
     companies: str = Form(default=""),
+    keywords: str = Form(default=""),
     pages: int = Form(default=2),
     region: str = Form(default=""),
     work_mode: str = Form(default=""),
@@ -411,6 +425,7 @@ def jobs_auto(
 ):
     """履歷 → 自動找職缺：解析履歷 → 推導關鍵字 → 搜尋多站 →（選填）併入指定公司的開缺 → 依履歷排序。
 
+    keywords：使用者自訂搜尋關鍵字（逗號字串，最多 3 組），逐字搜尋、優先於系統推導、與推導詞合併去重。
     pages：每個來源抓幾頁（使用者可在前端調整，預設 2、夾在 1–5）。
     region：搜尋前選定的縣市（逗號串接 key）。對所有來源一致生效——104 於來源端用 area
             代碼篩選（涵蓋更全），其餘來源在結果端用 location 過濾，使用者看到的就是同一份地區結果。
@@ -422,6 +437,7 @@ def jobs_auto(
     text, text_error = _resume_text_from_request(file, resume_text)
     posted_profile, profile_error = (None, None) if text.strip() else _profile_from_json(profile_json)
     company_list = _parse_companies(companies)
+    custom_keywords = _parse_keywords(keywords)
     token = _task_from_id(task_id)
 
     def gen():
@@ -450,13 +466,18 @@ def jobs_auto(
             # 讓 match/resume/cover/interview agent 拿到逐字履歷（檔案上傳時前端沒有原文，必須由後端帶）。
             yield _sse({"type": "profile", "data": profile.model_dump()})
             with task_control.task_context(token):
-                queries = derive_queries(profile)
+                derived_queries = derive_queries(profile)
             token.check()
-            yield _sse({"type": "queries", "queries": queries})
+            # 自訂關鍵字排前（使用者意圖優先，逐字搜尋不經 LLM 潤飾）、推導詞補後，
+            # 去重（大小寫不敏感）、合併上限 5（每組 × 8 來源，超過會拖慢延遲）。
+            custom_lower = {k.lower() for k in custom_keywords}
+            queries = (custom_keywords
+                       + [q for q in derived_queries if q.lower() not in custom_lower])[:5]
+            yield _sse({"type": "queries", "queries": queries, "custom": custom_keywords})
 
             seen: set[str] = set()
             resume_jobs = []
-            for q in queries[:3]:
+            for q in queries[:5]:
                 token.check()
                 yield _sse({"type": "progress", "step": "search", "message": f"搜尋「{q}」中…"})
                 for res in search_all(q, limit=15, pages=pages, area=area):
