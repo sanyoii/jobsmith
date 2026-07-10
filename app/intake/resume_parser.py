@@ -1,4 +1,4 @@
-"""履歷檔案攝取：PDF / DOCX / 純文字 → 純文字。"""
+"""履歷檔案攝取：PDF / DOCX / HTML / 純文字 → 純文字。"""
 from __future__ import annotations
 
 import re
@@ -23,6 +23,8 @@ def extract_text(data: bytes, filename: str) -> str:
         raw = _extract_pdf(data)
     elif name.endswith(".docx"):
         raw = _extract_docx(data)
+    elif name.endswith((".html", ".htm")):
+        raw = _extract_html(data)
     else:
         raw = data.decode("utf-8", errors="ignore")
     return _clean(raw)
@@ -45,3 +47,13 @@ def _extract_docx(data: bytes) -> str:
 
     doc = Document(BytesIO(data))
     return "\n".join(p.text for p in doc.paragraphs).strip()
+
+
+def _extract_html(data: bytes) -> str:
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(data.decode("utf-8", errors="ignore"), "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    text = soup.get_text("\n", strip=True)
+    return re.sub(r"\n{2,}", "\n", text).strip()

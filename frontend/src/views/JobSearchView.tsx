@@ -445,8 +445,8 @@ export function JobSearchView(
           {busy && <Button variant="danger" onClick={stopSearch} icon={XCircle}>停止</Button>}
           <Button variant="secondary" onClick={() => { setFile(null); setText(SAMPLE_RESUME) }} disabled={busy}>載入範例履歷</Button>
           <label className={`inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition cursor-pointer focus-within:ring-2 focus-within:ring-brand-300 ${busy ? "opacity-50 pointer-events-none" : ""}`}>
-            <Upload className="w-4 h-4" />上傳檔案（PDF/DOCX/TXT）
-            <input type="file" accept=".pdf,.docx,.txt" className="sr-only" onChange={onFile} disabled={busy} />
+            <Upload className="w-4 h-4" />上傳檔案（PDF/DOCX/TXT/HTML）
+            <input type="file" accept=".pdf,.docx,.txt,.html,.htm" className="sr-only" onChange={onFile} disabled={busy} />
           </label>
           {busy && status && (
             <span className="text-sm text-slate-500 inline-flex items-center gap-1">
