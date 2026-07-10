@@ -939,3 +939,35 @@ def test_jobs_auto_without_companies_skips_company_lookup(monkeypatch):
     r = client.post("/api/jobs/auto", data={"resume_text": "我的履歷 Python"})
     assert r.status_code == 200
     assert called["n"] == 0  # 沒填公司名單就不查公司
+
+
+def test_resume_upload_guard_rejects_js_rendered_html():
+    # 迴歸：Claude artifact「bundled」HTML 真內容藏在 <script> 字串裡，bs4 剝殼後只剩佔位字。
+    # 舊行為：25 字元垃圾靜默通過、下游照跑職缺搜尋。新行為：低於門檻硬停、回明確錯誤含實際字數。
+    from io import BytesIO
+
+    from fastapi import UploadFile
+
+    html = (
+        '<html><head><title>Bundled Page</title>'
+        '<script type="__bundler/template">"<div>真履歷內容在這，但包在 JS 字串裡</div>"</script>'
+        '</head><body><div id="__bundler_loading">Unpacking...</div></body></html>'
+    ).encode("utf-8")
+    upload = UploadFile(file=BytesIO(html), filename="resume.html")
+    text, err = server_mod._resume_text_from_request(upload, "")
+    assert text == ""
+    assert err is not None and "字元" in err
+
+
+def test_resume_upload_guard_passes_normal_html():
+    # 正常文字型 HTML（超過門檻）不受 guard 影響。
+    from io import BytesIO
+
+    from fastapi import UploadFile
+
+    body = "王小明，Python 後端工程師，負責 API 設計與自動化測試。" * 10
+    html = f"<html><body><p>{body}</p></body></html>".encode("utf-8")
+    upload = UploadFile(file=BytesIO(html), filename="resume.html")
+    text, err = server_mod._resume_text_from_request(upload, "")
+    assert err is None
+    assert "王小明" in text

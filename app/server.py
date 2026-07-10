@@ -70,12 +70,23 @@ def _read_resume_upload(file: UploadFile) -> bytes:
     return data
 
 
+_MIN_RESUME_TEXT_CHARS = 100  # 低於此字數視為解析失敗（JS 渲染頁/掃描檔/空檔），硬停不靜默續跑
+
+
 def _resume_text_from_request(file: UploadFile | None, resume_text: str) -> tuple[str, str | None]:
     if file is None:
         return resume_text, None
     try:
         data = _read_resume_upload(file)
-        return extract_text(data, file.filename or "resume.txt"), None
+        text = extract_text(data, file.filename or "resume.txt")
+        got = len(text.strip())
+        if got < _MIN_RESUME_TEXT_CHARS:
+            return "", (
+                f"檔案解析僅得 {got} 字元，內容疑似沒有被正確讀取"
+                "（常見原因：JS 渲染的 HTML、掃描圖檔 PDF、空白檔案）。"
+                "請改貼純文字，或改用文字型 PDF / DOCX / TXT。"
+            )
+        return text, None
     except ValueError as exc:
         return "", str(exc)
     except Exception as exc:  # noqa: BLE001
@@ -283,7 +294,7 @@ def resume_evaluate(
             yield _sse({
                 "type": "progress",
                 "step": "received",
-                "message": "已收到履歷，準備開始健檢；通常需要 30 秒到 2 分鐘。",
+                "message": f"已收到履歷（解析 {len(text.strip())} 字元），準備開始健檢；通常需要 30 秒到 2 分鐘。",
             })
             token.check()
             yield _sse({
@@ -427,7 +438,7 @@ def jobs_auto(
                 yield _sse({"type": "error", "message": "請提供履歷檔案或文字"})
                 return
             if text.strip():
-                yield _sse({"type": "progress", "step": "structure", "message": "解析履歷中…"})
+                yield _sse({"type": "progress", "step": "structure", "message": f"解析履歷中…（{len(text.strip())} 字元）"})
                 with task_control.task_context(token):
                     profile = structure_profile(text)
             else:
