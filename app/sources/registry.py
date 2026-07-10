@@ -5,7 +5,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import quote
 
 from app.models import SearchResult
-from app.sources import source_104, source_cake, source_linkedin, source_yourator
+from app.sources import (
+    source_104,
+    source_cake,
+    source_cryptojobslist,
+    source_dejob,
+    source_jobfrog,
+    source_linkedin,
+    source_web3career,
+    source_yourator,
+)
 
 # 可關鍵字搜尋的來源（name -> search 函式）
 SEARCHABLE = {
@@ -13,6 +22,10 @@ SEARCHABLE = {
     source_yourator.NAME: source_yourator.search,
     source_linkedin.NAME: source_linkedin.search,
     source_cake.NAME: source_cake.search,
+    source_web3career.NAME: source_web3career.search,
+    source_cryptojobslist.NAME: source_cryptojobslist.search,
+    source_dejob.NAME: source_dejob.search,
+    source_jobfrog.NAME: source_jobfrog.search,
 }
 
 # 尚未穩定、暫不啟用的來源（UI 標「即將支援」，避免永遠失敗的來源傷可信度）。

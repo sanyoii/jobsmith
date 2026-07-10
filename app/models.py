@@ -194,7 +194,8 @@ class ResumeAssessment(BaseModel):
 
 class JobPosting(BaseModel):
     """正規化後的單一職缺。"""
-    source: str = Field(description="104 | cake | yourator | linkedin | url")
+    source: str = Field(
+        description="104 | cake | yourator | linkedin | web3career | cryptojobslist | dejob | jobfrog | url")
     title: str
     company: str
     location: str | None = None
@@ -203,6 +204,7 @@ class JobPosting(BaseModel):
     snippet: str | None = Field(default=None, description="職缺摘要")
     requirements: list[str] = Field(default_factory=list)
     raw_text: str = Field(default="", description="原始職缺全文，供後續解析")
+    work_mode: str | None = Field(default=None, description="onsite | hybrid | remote；來源沒揭露時為 None")
 
 
 class JobMatch(BaseModel):

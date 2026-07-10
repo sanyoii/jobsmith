@@ -13,7 +13,7 @@ import { Button } from "../ui/Button"
 import { Badge } from "../ui/Badge"
 import { Skeleton } from "../ui/Skeleton"
 import { EmptyState } from "../ui/EmptyState"
-import { Search, Upload, Loader2, ExternalLink, AlertTriangle, CheckCircle2, XCircle, Building2, Layers, MapPin, X, UserRound } from "../ui/icons"
+import { Search, Upload, Loader2, ExternalLink, AlertTriangle, CheckCircle2, XCircle, Building2, Layers, MapPin, Briefcase, X, UserRound } from "../ui/icons"
 
 const SNAP_KEY = "copilot.jobsearch.v1"  // 上次搜尋結果快取（重新整理/重開沿用）
 
@@ -36,6 +36,13 @@ const COUNTIES = [
   "台北市", "新北市", "桃園市", "台中市", "台南市", "高雄市",
   "基隆市", "新竹縣市", "苗栗縣", "彰化縣", "南投縣", "雲林縣",
   "嘉義縣市", "屏東縣", "宜蘭縣", "花蓮縣", "台東縣",
+]
+
+// 搜尋工作形式（對應後端 app/sources/work_modes.py）：搜尋前選定、所有來源一致生效；不選＝不限。
+const WORK_MODES = [
+  { key: "onsite", label: "現場辦公" },
+  { key: "hybrid", label: "部分遠端" },
+  { key: "remote", label: "全遠端" },
 ]
 
 function mergeSource(arr: SourceStat[], ev: { source: string; count: number; blocked: boolean }): SourceStat[] {
@@ -68,6 +75,7 @@ export function JobSearchView(
   const [rankTotal, setRankTotal] = useState(0)
   const [minFit, setMinFit] = useState(0)            // 適配色帶門檻（0/60/80）
   const [regions, setRegions] = useState<string[]>([])  // 搜尋地點（縣市 key；空 = 全台）
+  const [workModes, setWorkModes] = useState<string[]>([])  // 搜尋工作形式（key；空 = 不限）
   const [linkedin, setLinkedin] = useState("")
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [blockedNote, setBlockedNote] = useState("")
@@ -101,6 +109,7 @@ export function JobSearchView(
       if (Array.isArray(s.searchedCompanies)) setSearchedCompanies(s.searchedCompanies)
       if (typeof s.pages === "number") setPages(s.pages)
       if (Array.isArray(s.regions)) setRegions(s.regions)
+      if (Array.isArray(s.workModes)) setWorkModes(s.workModes)
       if (s.profile) setProfile(s.profile as UserProfile)
       if (Array.isArray(s.jobs) && s.jobs.length) { setDone(true); setFormOpen(false) }
       else if (Array.isArray(s.companyJobs) && s.companyJobs.length) { setDone(true); setFormOpen(false) }
@@ -114,11 +123,11 @@ export function JobSearchView(
     try {
       localStorage.setItem(SNAP_KEY, JSON.stringify({
         text, companies, jobs, companyJobs, queries, sources,
-        linkedin, fallback, searchedCompanies, profile, pages, regions,
+        linkedin, fallback, searchedCompanies, profile, pages, regions, workModes,
       }))
     } catch { /* localStorage 不可用/已滿則略過 */ }
   }, [done, jobs, companyJobs, queries, sources, linkedin, fallback,
-      searchedCompanies, profile, text, companies, pages, regions])
+      searchedCompanies, profile, text, companies, pages, regions, workModes])
 
   // 回報是否已有結果，App 才知道要不要在右上角顯示「收合搜尋條件」鈕。
   useEffect(() => {
@@ -145,6 +154,9 @@ export function JobSearchView(
   function toggleRegion(k: string) {
     setRegions((rs) => (rs.includes(k) ? rs.filter((x) => x !== k) : [...rs, k]))
   }
+  function toggleWorkMode(k: string) {
+    setWorkModes((ws) => (ws.includes(k) ? ws.filter((x) => x !== k) : [...ws, k]))
+  }
 
   async function saveSearch(acc: SearchAcc, cs: string[]) {
     if (!acc.jobs.length && !acc.companyJobs.length) return
@@ -168,6 +180,7 @@ export function JobSearchView(
   function appendSearchOptions(form: FormData) {
     form.append("pages", String(pages))
     if (regions.length) form.append("region", regions.join(","))
+    if (workModes.length) form.append("work_mode", workModes.join(","))
   }
 
   async function go(
@@ -302,7 +315,7 @@ export function JobSearchView(
       {(formOpen || !hasResults) && (
       <Card className="p-5 mb-5">
         <p className="text-sm text-slate-600 mb-2">
-          丟上你的履歷，AI 自動推導關鍵字、搜尋 104 / Yourator / LinkedIn / Cake 並依履歷排序；
+          丟上你的履歷，AI 自動推導關鍵字、搜尋 104 / Yourator / Cake / LinkedIn / web3.career / CryptoJobsList / DeJob / JobFrog 並依履歷排序；
           也可加入想去的公司，單獨列出它們的開缺。填好後按「開始自動找職缺」。
         </p>
         {activeProfile && (
@@ -362,7 +375,7 @@ export function JobSearchView(
               className="flex-1 min-w-[10rem] bg-transparent text-sm py-0.5 focus:outline-none disabled:opacity-50"
             />
           </div>
-          <p className="text-xs text-slate-400 mt-1">這些公司在 104 / LinkedIn / Cake 與官網 careers 的開缺，會列在下方「指定公司的職缺」獨立區塊。</p>
+          <p className="text-xs text-slate-400 mt-1">這些公司在各職缺平台與官網 careers 的開缺，會列在下方「指定公司的職缺」獨立區塊。</p>
         </div>
 
         <div className="mt-4 flex items-center gap-2 text-sm">
@@ -403,6 +416,28 @@ export function JobSearchView(
             })}
           </div>
           <p className="text-xs text-slate-400 mt-1">選了縣市就只找那些地區的職缺，所有來源一致生效（104 直接從來源端篩，其餘來源依職缺地點過濾）。</p>
+        </div>
+
+        <div className="mt-4">
+          <label className="text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1.5">
+            <Briefcase className="w-4 h-4 text-slate-400" />工作形式（選填、可多選；不選＝不限）
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" onClick={() => setWorkModes([])} disabled={busy} aria-pressed={workModes.length === 0}
+              className={`px-2.5 py-1 rounded-lg border text-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 disabled:opacity-50 ${
+                workModes.length === 0 ? "bg-brand-600 text-white border-brand-600" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+              }`}>不限</button>
+            {WORK_MODES.map((w) => {
+              const on = workModes.includes(w.key)
+              return (
+                <button key={w.key} type="button" onClick={() => toggleWorkMode(w.key)} disabled={busy} aria-pressed={on}
+                  className={`px-2.5 py-1 rounded-lg border text-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 disabled:opacity-50 ${
+                    on ? "bg-brand-600 text-white border-brand-600" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+                  }`}>{w.label}</button>
+              )
+            })}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">選了工作形式就只找符合的職缺；來源沒標示工作形式的職缺一律保留（無法判斷時不誤殺）。</p>
         </div>
 
         <div className="flex flex-wrap gap-2 mt-4 items-center">
@@ -520,7 +555,7 @@ export function JobSearchView(
           ) : (
             <Card className="p-2">
               <EmptyState icon={Building2} title="指定公司目前查無相關開缺"
-                desc="可能沒有在 104 / LinkedIn / Cake PO，或官網 careers 抓不到；可直接到公司官網看看。" />
+                desc="可能沒有在各職缺平台 PO，或官網 careers 抓不到；可直接到公司官網看看。" />
             </Card>
           )}
         </div>

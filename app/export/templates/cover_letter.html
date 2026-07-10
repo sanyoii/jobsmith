@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4; margin: 20mm 18mm; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
+    color: #1a1a1a; font-size: 11pt; line-height: 1.7;
+  }
+  .subject { font-weight: 700; font-size: 12pt; margin-bottom: 12pt; }
+  p { margin-bottom: 8pt; break-inside: avoid; }
+</style>
+</head>
+<body>
+  {% if subject %}<div class="subject">主旨：{{ subject }}</div>{% endif %}
+  {% for line in body_lines %}<p>{{ line }}</p>{% endfor %}
+</body>
+</html>

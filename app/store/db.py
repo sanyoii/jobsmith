@@ -32,6 +32,13 @@ def _init(conn: sqlite3.Connection) -> None:
     if "status" not in cols:
         # 既有列視為已完成；新列先為 'running'，跑完有文件轉 'done'，無文件轉 'stopped'，失敗 'failed'。
         conn.execute("ALTER TABLE packages ADD COLUMN status TEXT DEFAULT 'done'")
+    # 外部投遞結果（applied/interviewing/offer/rejected/ghosted；NULL=尚未投遞）。
+    if "outcome_status" not in cols:
+        conn.execute("ALTER TABLE packages ADD COLUMN outcome_status TEXT")
+    if "outcome_updated_at" not in cols:
+        conn.execute("ALTER TABLE packages ADD COLUMN outcome_updated_at TEXT")
+    if "outcome_note" not in cols:
+        conn.execute("ALTER TABLE packages ADD COLUMN outcome_note TEXT")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS user_memory("
         "id INTEGER PRIMARY KEY CHECK (id=1), profile_json TEXT, preferences_json TEXT, updated_at TEXT)")

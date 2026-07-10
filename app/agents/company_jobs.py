@@ -8,7 +8,8 @@ from app.llm import research_structured
 from app.models import JobPosting, JobPostingList
 from app.sources.registry import search_all
 
-_BOARD_SOURCES = {"104", "yourator", "linkedin", "cake"}
+_BOARD_SOURCES = {"104", "yourator", "linkedin", "cake",
+                   "web3career", "cryptojobslist", "dejob", "jobfrog"}
 
 CAREERS_SYSTEM = (
     "你是求職研究員。請用網路搜尋找出指定公司的『官方 careers / 徵才頁』目前正在開的職缺，"

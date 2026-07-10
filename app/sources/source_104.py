@@ -44,6 +44,16 @@ def _format_salary(d: dict) -> str | None:
     return f"{label} {amount}".strip()
 
 
+_WORK_MODE = {0: "onsite", 1: "remote", 2: "hybrid"}
+
+
+def _work_mode(d: dict) -> str | None:
+    try:
+        return _WORK_MODE.get(int(d.get("remoteWorkType")))
+    except (TypeError, ValueError):
+        return None
+
+
 def search(keywords: str, limit: int = 15, pages: int = 1,
            area: list[str] | None = None) -> SearchResult:
     """搜尋 104；pages>1 時逐頁抓取（API 吃 page 參數）並跨頁去重。
@@ -83,5 +93,6 @@ def search(keywords: str, limit: int = 15, pages: int = 1,
                 salary=_format_salary(d),
                 url=url,
                 snippet=clean(d.get("descSnippet") or d.get("description") or ""),
+                work_mode=_work_mode(d),
             ))
     return SearchResult(source=NAME, jobs=jobs)

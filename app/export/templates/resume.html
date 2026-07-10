@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
+    color: #1a1a1a; font-size: 10.5pt; line-height: 1.55;
+  }
+  h1 { font-size: 16pt; margin-bottom: 2pt; }
+  .company { color: #555; font-size: 11pt; margin-bottom: 12pt; }
+  h2 { font-size: 12pt; margin: 12pt 0 6pt; padding-bottom: 3pt; border-bottom: 0.75pt solid #ccc; }
+  p.summary { margin-bottom: 8pt; }
+  ul { padding-left: 16pt; }
+  li { margin-bottom: 4pt; break-inside: avoid; }
+  section { break-inside: avoid; }
+  .keywords { margin-top: 10pt; color: #555; font-size: 9pt; }
+</style>
+</head>
+<body>
+  <h1>{{ job_title }}</h1>
+  {% if company %}<div class="company">{{ company }}</div>{% endif %}
+  <section>
+    <h2>客製履歷</h2>
+    {% if summary %}<p class="summary">{{ summary }}</p>{% endif %}
+    {% if bullets %}
+    <ul>
+      {% for b in bullets %}<li>{{ b }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+  {# 不印 ATS 關鍵字清單：PDF 是投遞成品，且印出來會讓 pdf_verify 的
+     rendering-loss 檢查變成循環驗證（自己印的字驗自己）。docx 工作稿才保留。 #}
+</body>
+</html>

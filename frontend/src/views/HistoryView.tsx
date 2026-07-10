@@ -16,11 +16,27 @@ import {
 interface PkgSummary {
   id: number; created_at: string; job_title: string; company: string
   match_score: number; approved: number; status?: string; thread_id?: string; has_artifacts?: number
+  outcome_status?: string | null; outcome_note?: string | null
 }
 type PackagePayload = PipelineState & { error?: { message?: string } }
 interface PackageDetail {
   id: number; package: PackagePayload; jd_text?: string; profile?: UserProfile | null
   approved?: number; status?: string; has_artifacts?: number
+  outcome_status?: string | null; outcome_note?: string | null
+}
+
+// 外部投遞結果（Phase 3 outcome 追蹤）：值域與後端 _OUTCOME_STATUSES 一致。
+const OUTCOME_OPTIONS: { value: string; label: string; tone: "brand" | "amber" | "emerald" | "rose" | "slate" }[] = [
+  { value: "applied", label: "已投遞", tone: "brand" },
+  { value: "interviewing", label: "面試邀約", tone: "amber" },
+  { value: "offer", label: "Offer", tone: "emerald" },
+  { value: "rejected", label: "未錄取", tone: "rose" },
+  { value: "ghosted", label: "無回音", tone: "slate" },
+]
+
+function outcomeBadge(status?: string | null) {
+  const opt = OUTCOME_OPTIONS.find((o) => o.value === status)
+  return opt ? <Badge tone={opt.tone}>{opt.label}</Badge> : null
 }
 
 function fmtDate(iso: string) {
@@ -94,6 +110,48 @@ export function HistoryView(
     refresh()
   }
 
+  // 更新外部投遞結果；note 僅在明確傳入時送出（避免洗掉既有備註）。
+  async function setOutcome(id: number, status: string | null, note?: string) {
+    const body: { status: string | null; note?: string } = { status }
+    if (note !== undefined) body.note = note
+    await fetch(`/api/history/${id}/outcome`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    })
+    if (detail?.id === id) {
+      setDetail({ ...detail, outcome_status: status, ...(note !== undefined ? { outcome_note: note } : {}) })
+    }
+    refresh()
+  }
+
+  function exportBody(pkg: PipelineState) {
+    const r = pkg.tailored_resume, c = pkg.cover_letter, k = pkg.interview_kit
+    return {
+      job_title: pkg.parsed_job?.title || "求職投遞包",
+      company: pkg.parsed_job?.company || pkg.company_brief?.company || "",
+      resume: r ? {
+        summary: r.summary, bullets: r.bullets,
+        ats_keywords_hit: r.ats_keywords_hit, ats_keywords_missing: r.ats_keywords_missing,
+      } : undefined,
+      cover_letter: c ? { subject: c.subject, body: c.body } : undefined,
+      interview: k || undefined,
+    }
+  }
+
+  // 下載 PDF（zip：履歷＋求職信＋ATS 文字層報告）；有警告時提示看 ats-report.json。
+  async function downloadPdf(pkg: PipelineState) {
+    const resp = await fetch("/api/export/pdf", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(exportBody(pkg)),
+    })
+    if (!resp.ok) return
+    const warnings = Number(resp.headers.get("X-ATS-Warnings") || "0")
+    if (warnings > 0) {
+      console.warn(`ATS 文字層驗證有 ${warnings} 項警告，詳見 zip 內 ats-report.json`)
+    }
+    const blob = await resp.blob()
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob); a.download = "投遞包-pdf.zip"; a.click(); URL.revokeObjectURL(a.href)
+  }
+
   async function downloadDocx(pkg: PipelineState) {
     const r = pkg.tailored_resume, c = pkg.cover_letter, k = pkg.interview_kit
     const body = {
@@ -138,7 +196,25 @@ export function HistoryView(
           <Button variant="secondary" icon={MessagesSquare}
             onClick={() => onInterview(detail.jd_text || "", detail.profile ?? null)}>用這份做面試模擬</Button>
           {hasDocs && <Button variant="secondary" icon={FileDown} onClick={() => downloadDocx(p)}>下載 Word</Button>}
+          {hasDocs && <Button variant="secondary" icon={FileDown} onClick={() => downloadPdf(p)}>下載 PDF</Button>}
           {hasDocs && <Button variant="secondary" icon={Printer} onClick={() => window.print()}>列印 / 匯出 PDF</Button>}
+        </div>
+        <div className="no-print flex flex-wrap items-center gap-2 mb-4">
+          <span className="text-sm text-slate-600">投遞結果：</span>
+          <select value={detail.outcome_status || ""}
+            onChange={(e) => setOutcome(detail.id, e.target.value || null)}
+            className="text-sm border border-slate-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300">
+            <option value="">未投遞</option>
+            {OUTCOME_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <input type="text" placeholder="備註（拒信理由 / 面試回饋）"
+            defaultValue={detail.outcome_note || ""}
+            onBlur={(e) => {
+              if ((e.target.value || "") !== (detail.outcome_note || "")) {
+                setOutcome(detail.id, detail.outcome_status ?? null, e.target.value)
+              }
+            }}
+            className="text-sm border border-slate-300 rounded-lg px-2 py-1.5 flex-1 min-w-48 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300" />
         </div>
         <div className="space-y-4">
           {stopped && (
@@ -196,6 +272,7 @@ export function HistoryView(
               <p className="text-sm text-slate-600 truncate flex items-center gap-2">
                 <span className="truncate">{p.company || "—"} · {fmtDate(p.created_at)}</span>
                 {statusBadge(p)}
+                {outcomeBadge(p.outcome_status)}
               </p>
             </div>
             {reviewable && (

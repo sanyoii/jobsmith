@@ -21,13 +21,13 @@
 
 </div>
 
-> 應用程式介面為繁體中文，貼合台灣求職生態（104 / Cake / Yourator / LinkedIn）。資料以本機保存為主；執行 AI 功能時，履歷與 prompt 會交給你選擇的 CLI 或 BYOK 後端處理。詳見 [隱私與資料處理](docs/PRIVACY.md)。
+> 應用程式介面為繁體中文，貼合台灣求職生態（104 / Cake / Yourator / LinkedIn / web3.career / CryptoJobsList / DeJob / JobFrog）。資料以本機保存為主；執行 AI 功能時，履歷與 prompt 會交給你選擇的 CLI 或 BYOK 後端處理。詳見 [隱私與資料處理](docs/PRIVACY.md)。
 
 ---
 
 ## 功能概覽
 
-- **自動找職缺**：上傳履歷後由 AI 推導關鍵字，搜尋 104 / Yourator / LinkedIn / Cake。
+- **自動找職缺**：上傳履歷後由 AI 推導關鍵字，搜尋 104 / Yourator / Cake / LinkedIn / web3.career / CryptoJobsList / DeJob / JobFrog。
 - **職缺評分排序**：分批串流職缺、評估適配度，並可直接進入投遞包流程。
 - **投遞工作包**：產出客製履歷、求職信、面試準備與公司研究。
 - **履歷健檢**：檢查 ATS 與內容完整度，標示深度健檢或備援健檢，並保留本機歷史紀錄。
@@ -89,7 +89,7 @@ desktop.bat          # 以原生桌面視窗啟動（推薦）
 
 ## 功能
 
-- **自動找職缺**：貼上或上傳履歷 → AI 推導關鍵字 → **並行**搜尋 104 / Yourator / LinkedIn / Cake → **分批串流**依適配度排序（邊評邊顯示）。可在**搜尋前先選縣市**（104 於來源端篩、其餘來源於結果端篩）、依**適配色帶**（高／中以上／全部）篩選、調整每來源頁數，並把指定公司的開缺列在獨立區塊。
+- **自動找職缺**：貼上或上傳履歷 → AI 推導關鍵字 → **並行**搜尋 104 / Yourator / Cake / LinkedIn / web3.career / CryptoJobsList / DeJob / JobFrog → **分批串流**依適配度排序（邊評邊顯示）。可在**搜尋前先選縣市**（104 於來源端篩、其餘來源於結果端篩）、依**適配色帶**（高／中以上／全部）篩選、調整每來源頁數，並把指定公司的開缺列在獨立區塊。
 - **搜尋紀錄**：每次搜尋自動存整包，可回看、重新產生投遞包、刪除——不怕好職缺重找就不見。
 - **履歷健檢**：依台灣 ATS 慣例評分，給具體修改建議與改寫前後範例。
 - **投遞包工作台**：對任一職缺按「產生投遞包」，多代理流程（解析 JD → 匹配評分 → 公司情報 → 客製履歷 → 求職信 → 面試準備 → 品管反思）在**背景**執行——離開頁面或重新整理都不中斷，多個職缺還能**平行**跑。畫面乾淨一頁式：左側即時多代理編排、右側分頁瀏覽成品。
@@ -122,10 +122,12 @@ React SPA (Vite)  ──HTTP · SSE · 輪詢──►  FastAPI
                                           │
                   ┌───────────────────────┼───────────────────────┐
                   ▼                       ▼                      ▼
-        LangGraph StateGraph         職缺來源              App SQLite
+        LangGraph StateGraph         職缺來源（8 個平台）    App SQLite
         (每個背景產生一個、各自         104 / Yourator /     (投遞包＋狀態
-         記憶體 checkpointer、可平行)   LinkedIn / Cake       進行中→待審→已核可、
-                  │                                          記憶、搜尋)
+         記憶體 checkpointer、可平行)   Cake / LinkedIn /     進行中→待審→已核可、
+                  │                    web3.career /         記憶、搜尋)
+                  │                    CryptoJobsList /
+                  │                    DeJob / JobFrog
                   ▼
           可切換的 LLM 後端
           claude_cli · codex_cli · openai (BYOK)
@@ -169,7 +171,7 @@ python -m app.evals.harness     # 對每個 golden 案例跑整張 graph，寫�
 ```
 app/
   agents/     # 履歷健檢、職缺搜尋、公司情報、文件對話、面試模擬…
-  sources/    # 104 / Yourator / LinkedIn / Cake 搜尋 + registry + 縣市對應
+  sources/    # 104 / Yourator / Cake / LinkedIn / web3.career / CryptoJobsList / DeJob / JobFrog 搜尋 + registry + 縣市對應
   store/      # 應用層 SQLite：歷史、記憶、搜尋紀錄
   intake/     # 履歷／JD 解析與抓取
   export/     # Word（.docx）匯出
@@ -196,7 +198,7 @@ cd frontend && npm run build   # 型別檢查 + 正式建置
 - [x] BYOK——任何 OpenAI 相容後端
 - [x] 背景、可平行、重新整理不中斷的投遞包產生
 - [ ] macOS / Linux 版本
-- [ ] 更多職缺來源
+- [x] 更多職缺來源（web3.career / CryptoJobsList / DeJob / JobFrog，2026-07-03）
 
 ## 貢獻
 
@@ -204,7 +206,7 @@ cd frontend && npm run build   # 型別檢查 + 正式建置
 
 ## 免責聲明
 
-本專案僅供**個人、教育與研究用途**，以低頻方式查詢 104 / Yourator / LinkedIn / Cake 的公開職缺，協助個別求職者。使用者需自行遵守各網站的服務條款與 `robots.txt`，**請勿**用於大量爬取或商業性資料蒐集。軟體按「現狀」提供，不附任何擔保。AI 生成內容（履歷、求職信、公司情報）可能有誤，使用前請務必自行檢視。
+本專案僅供**個人、教育與研究用途**，以低頻方式查詢 104 / Yourator / Cake / LinkedIn / web3.career / CryptoJobsList / DeJob / JobFrog 的公開職缺，協助個別求職者。使用者需自行遵守各網站的服務條款與 `robots.txt`，**請勿**用於大量爬取或商業性資料蒐集。軟體按「現狀」提供，不附任何擔保。AI 生成內容（履歷、求職信、公司情報）可能有誤，使用前請務必自行檢視。
 
 ## 授權
 

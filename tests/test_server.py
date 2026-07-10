@@ -821,6 +821,35 @@ def test_jobs_auto_region_filters_uniformly(monkeypatch):
     assert titles == {"台北職缺", "台北遠端"}            # 台中現場（非-104 外地）被濾掉
 
 
+def test_jobs_auto_work_mode_filters(monkeypatch):
+    """選工作形式：符合的職缺留下；work_mode=None（未知）一律保留（不因缺資料誤殺）。"""
+    from app.models import JobMatch, JobPosting, Profile, SearchResult
+    monkeypatch.setattr(server_mod, "structure_profile",
+                        lambda text: Profile(name="王", summary="後端", raw_text=text))
+    monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["AI"])
+
+    def fake_search(q, limit=15, pages=1, area=None):
+        return [
+            SearchResult(source="104", jobs=[
+                JobPosting(source="104", title="全遠端職缺", company="A", url="u1", work_mode="remote"),
+                JobPosting(source="104", title="現場職缺", company="B", url="u2", work_mode="onsite"),
+            ]),
+            SearchResult(source="cake", jobs=[
+                JobPosting(source="cake", title="未知工作形式", company="C", url="u3", work_mode=None),
+            ]),
+        ]
+    monkeypatch.setattr(server_mod, "search_all", fake_search)
+    monkeypatch.setattr(server_mod, "rank_jobs",
+                        lambda profile, jobs, top_k=None: [JobMatch(job=j, fit_score=70) for j in jobs])
+    client = TestClient(server_mod.app)
+    r = client.post("/api/jobs/auto", data={"resume_text": "x", "work_mode": "remote"})
+    events = _parse_sse(r.text)
+    titles = {m["job"]["title"] for e in events if e["type"] == "ranked_batch" for m in e["data"]}
+    assert "全遠端職缺" in titles       # work_mode=remote → 留下
+    assert "現場職缺" not in titles     # work_mode=onsite，篩 remote 時濾掉
+    assert "未知工作形式" in titles     # work_mode=None → 不誤殺，保留
+
+
 def test_pipeline_chat_resume_applies_update(monkeypatch):
     """履歷對話：AI 給修訂 → 端點回傳 reply + updated{summary,bullets}。"""
     from app.agents import refine as refine_mod

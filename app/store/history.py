@@ -131,7 +131,8 @@ def list_packages() -> list[dict]:
     # 與終局自動存檔同時發生時可能拋 ProgrammingError。
     with db.LOCK:
         rows = conn.execute(
-            "SELECT id,created_at,job_title,company,match_score,approved,status,thread_id,package_json "
+            "SELECT id,created_at,job_title,company,match_score,approved,status,thread_id,package_json,"
+            "outcome_status,outcome_note "
             "FROM packages ORDER BY id DESC").fetchall()
     out = []
     for r in rows:
@@ -160,6 +161,26 @@ def get_package(pid: int) -> dict | None:
     d["profile"] = json.loads(d["profile_json"]) if d.get("profile_json") else None
     d.pop("profile_json", None)
     return d
+
+
+def set_outcome(pid: int, status: str | None, note: str | None = None,
+                *, update_note: bool = False) -> None:
+    """更新外部投遞結果（applied/interviewing/offer/rejected/ghosted；None=清除回未投遞）。
+
+    note 僅在 update_note=True 時寫入，避免只改狀態的請求把既有備註洗掉。
+    """
+    conn = db.get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    with db.LOCK:
+        if update_note:
+            conn.execute(
+                "UPDATE packages SET outcome_status=?, outcome_note=?, outcome_updated_at=? WHERE id=?",
+                (status, note, now, pid))
+        else:
+            conn.execute(
+                "UPDATE packages SET outcome_status=?, outcome_updated_at=? WHERE id=?",
+                (status, now, pid))
+        conn.commit()
 
 
 def set_approved(pid: int, approved: bool) -> None:

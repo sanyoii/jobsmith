@@ -25,7 +25,7 @@ from app.cli import load_profile
 from app.graph import build_graph
 from app.intake.resume_parser import extract_text
 from app.models import Profile
-from app.sources import regions
+from app.sources import regions, work_modes
 from app.sources.registry import linkedin_search_url, search_all
 from app.store import db as _appdb
 from app.store import history as _history
@@ -395,6 +395,7 @@ def jobs_auto(
     companies: str = Form(default=""),
     pages: int = Form(default=2),
     region: str = Form(default=""),
+    work_mode: str = Form(default=""),
     task_id: str = Form(default=""),
 ):
     """履歷 → 自動找職缺：解析履歷 → 推導關鍵字 → 搜尋多站 →（選填）併入指定公司的開缺 → 依履歷排序。
@@ -406,6 +407,7 @@ def jobs_auto(
     pages = max(1, min(5, pages))
     region_keys = regions.parse_keys(region)
     area = regions.area_codes(region_keys)
+    work_mode_keys = work_modes.parse_keys(work_mode)
     text, text_error = _resume_text_from_request(file, resume_text)
     posted_profile, profile_error = (None, None) if text.strip() else _profile_from_json(profile_json)
     company_list = _parse_companies(companies)
@@ -450,7 +452,8 @@ def jobs_auto(
                     token.check()
                     # 104 已於來源端用 area 篩過；其餘來源在結果端依 location 過濾，地區一致生效。
                     kept = [j for j in res.jobs
-                            if res.source == "104" or regions.match_location(j.location, region_keys)]
+                            if (res.source == "104" or regions.match_location(j.location, region_keys))
+                            and work_modes.match(j.work_mode, work_mode_keys)]
                     yield _sse({"type": "source", "source": res.source,
                                 "count": len(kept), "blocked": res.blocked})
                     for j in kept:
@@ -573,6 +576,38 @@ def export_docx(pkg: dict = Body(...)):
         content=data, media_type=_DOCX_MEDIA,
         headers={"Content-Disposition": 'attachment; filename="job-package.docx"'},
     )
+
+
+@app.post("/api/export/pdf")
+def export_pdf(pkg: dict = Body(...)):
+    """把投遞包轉成 PDF（zip：履歷＋求職信＋ATS 文字層驗證報告）。
+
+    Playwright Chromium 渲染 A4 PDF；ats-report.json 為確定性文字層檢查
+    （rendering-loss=版面吃字、gap=履歷本來就沒有的技能）。
+    X-ATS-Warnings header 帶警告數，前端據此提示。
+    """
+    import io
+    import zipfile
+
+    from app.export.pdf_export import build_pdfs
+    from app.export.pdf_verify import ats_check
+    try:
+        files = build_pdfs(pkg or {})
+    except Exception:
+        return JSONResponse({"error": "PDF 匯出失敗，請重試。"}, status_code=400)
+    if not files:
+        return JSONResponse({"error": "沒有可匯出的文件。"}, status_code=400)
+    ats = ats_check(files["resume.pdf"], pkg or {}) if "resume.pdf" in files else None
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+        if ats is not None:
+            zf.writestr("ats-report.json", json.dumps(ats, ensure_ascii=False, indent=2))
+    headers = {"Content-Disposition": 'attachment; filename="job-package-pdf.zip"'}
+    if ats is not None:
+        headers["X-ATS-Warnings"] = str(ats.get("warnings", 0))
+    return Response(content=buf.getvalue(), media_type="application/zip", headers=headers)
 
 
 def _backend_available(name: str) -> bool:
@@ -1048,6 +1083,26 @@ def history_get(pid: int):
 @app.post("/api/history/{pid}/approve")
 def history_approve(pid: int):
     _history.set_approved(pid, True)
+    return {"ok": True}
+
+
+_OUTCOME_STATUSES = {"applied", "interviewing", "offer", "rejected", "ghosted"}
+
+
+@app.patch("/api/history/{pid}/outcome")
+def history_outcome(pid: int, payload: dict = Body(...)):
+    """更新外部投遞結果：applied/interviewing/offer/rejected/ghosted，null=清除回未投遞。
+
+    note 欄位僅在 payload 有帶時更新，避免只改狀態把既有備註洗掉。
+    """
+    status = payload.get("status")
+    if status is not None and status not in _OUTCOME_STATUSES:
+        return JSONResponse({"error": "無效的投遞結果狀態"}, status_code=400)
+    note = payload.get("note")
+    _history.set_outcome(
+        pid, status,
+        note if isinstance(note, str) else None,
+        update_note="note" in payload)
     return {"ok": True}
 
 

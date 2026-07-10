@@ -1,6 +1,6 @@
 import { useState } from "react"
 import type { JobMatch } from "../../types"
-import { SRC_LABEL } from "../../lib/sources"
+import { SRC_LABEL, WORK_MODE_LABEL } from "../../lib/sources"
 import { Card } from "../../ui/Card"
 import { Button } from "../../ui/Button"
 import { Badge } from "../../ui/Badge"
@@ -34,6 +34,7 @@ function JobCard({ m, onPick, pending }: { m: JobMatch; onPick: (m: JobMatch) =>
           <a href={m.job.url} target="_blank" rel="noreferrer"
             className="font-medium text-slate-900 hover:text-brand-700 hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300">{m.job.title}</a>
           <Badge tone={m.job.source === "careers" ? "brand" : "slate"}>{SRC_LABEL[m.job.source] || m.job.source}</Badge>
+          {m.job.work_mode && <Badge tone="slate">{WORK_MODE_LABEL[m.job.work_mode]}</Badge>}
         </div>
         <p className="text-sm text-slate-600 mt-0.5">
           {m.job.company}

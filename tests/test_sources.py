@@ -1,4 +1,15 @@
-from app.sources import source_104, source_cake, source_linkedin, source_yourator
+import json
+
+from app.sources import (
+    source_104,
+    source_cake,
+    source_cryptojobslist,
+    source_dejob,
+    source_jobfrog,
+    source_linkedin,
+    source_web3career,
+    source_yourator,
+)
 
 
 class FakeResp:
@@ -19,6 +30,7 @@ def test_source_104_parses(monkeypatch):
         "jobName": "[[[AI]]]工程師", "custName": "未來智能", "jobAddrNoDesc": "台北",
         "salaryDesc": "面議", "descSnippet": "做 [[[Python]]] 開發",
         "link": {"job": "https://www.104.com.tw/job/abc"},
+        "remoteWorkType": 1,
     }]}
     monkeypatch.setattr(source_104, "http_get", lambda *a, **k: FakeResp(json_data=payload))
     res = source_104.search("AI", limit=5)
@@ -29,6 +41,7 @@ def test_source_104_parses(monkeypatch):
     assert j.company == "未來智能"
     assert j.url.endswith("/abc")
     assert "Python" in j.snippet and "[[[" not in j.snippet
+    assert j.work_mode == "remote"
 
 
 def test_source_104_paginates_and_dedups(monkeypatch):
@@ -231,6 +244,173 @@ def test_source_linkedin_blocked_on_error(monkeypatch):
         raise ConnectionError("nope")
     monkeypatch.setattr(source_linkedin, "http_get", boom)
     assert source_linkedin.search("AI").blocked is True
+
+
+_WEB3CAREER_HTML = """<html><body><table><tbody>
+<tr data-jobid=1><td scope=row><a href="/ai-engineer-swag/1"><h2>AI Engineer</h2></a></td>
+<td class="job-location-mobile"><a href="/x"><h3>SWAG</h3></a></td>
+<td><time>1d</time></td>
+<td class="job-location-mobile"><a href="/web3-jobs-taipei">Taipei</a><span>,</span><a href="/web3-jobs-taiwan">Taiwan</a></td>
+<td><p class="text-salary">$80k - $100k</p></td>
+<td><a class="text-shadow-1px">python</a><a class="text-shadow-1px">llm</a></td>
+</tr>
+<tr data-jobid=2><td scope=row><a href="/backend-engineer-acme/2"><h2>Backend Engineer</h2></a></td>
+<td class="job-location-mobile"><a href="/y"><h3>Acme</h3></a></td>
+<td><time>2d</time></td>
+<td class="job-location-mobile"><span>Remote</span></td>
+<td><p class="text-salary"></p></td>
+<td><a class="text-shadow-1px">rust</a></td>
+</tr>
+</tbody></table></body></html>"""
+
+
+def test_source_web3career_parses(monkeypatch):
+    monkeypatch.setattr(source_web3career, "http_get", lambda *a, **k: FakeResp(text=_WEB3CAREER_HTML))
+    res = source_web3career.search("AI", limit=5)
+    assert res.blocked is False
+    assert len(res.jobs) == 2
+    j = res.jobs[0]
+    assert j.title == "AI Engineer"
+    assert j.company == "SWAG"
+    assert j.location == "Taipei, Taiwan"
+    assert j.salary == "$80k - $100k"
+    assert j.url == "https://web3.career/ai-engineer-swag/1"
+    assert "python" in j.requirements
+    assert j.work_mode is None
+    j2 = res.jobs[1]
+    assert j2.location == "Remote"
+    assert j2.work_mode == "remote"
+
+
+def test_source_web3career_blocked_when_no_rows(monkeypatch):
+    monkeypatch.setattr(source_web3career, "http_get", lambda *a, **k: FakeResp(text="<html>no jobs</html>"))
+    assert source_web3career.search("AI").blocked is True
+
+
+def test_source_web3career_blocked_on_error(monkeypatch):
+    def boom(*a, **k):
+        raise ConnectionError("nope")
+    monkeypatch.setattr(source_web3career, "http_get", boom)
+    assert source_web3career.search("AI").blocked is True
+
+
+_CJL_JSON = {
+    "props": {"pageProps": {"jobs": [{
+        "seoSlug": "ai-engineer-remote-at-thesoul", "jobTitle": "AI Engineer",
+        "companyName": "TheSoul", "jobLocation": "Remote", "salaryString": "$100k-150k/year",
+        "tags": ["remote", "developer"], "remote": True,
+    }]}}
+}
+
+
+def test_source_cryptojobslist_parses(monkeypatch):
+    html = ('<html><body><script id="__NEXT_DATA__" type="application/json">'
+            + json.dumps(_CJL_JSON) + "</script></body></html>")
+    monkeypatch.setattr(source_cryptojobslist, "http_get", lambda *a, **k: FakeResp(text=html))
+    res = source_cryptojobslist.search("AI", limit=5)
+    assert res.blocked is False
+    assert len(res.jobs) == 1
+    j = res.jobs[0]
+    assert j.title == "AI Engineer"
+    assert j.company == "TheSoul"
+    assert j.location == "Remote"
+    assert j.salary == "$100k-150k/year"
+    assert j.url == "https://cryptojobslist.com/jobs/ai-engineer-remote-at-thesoul"
+    assert "remote" in j.requirements
+    assert j.work_mode == "remote"
+
+
+def test_source_cryptojobslist_blocked_when_no_next_data(monkeypatch):
+    monkeypatch.setattr(source_cryptojobslist, "http_get", lambda *a, **k: FakeResp(text="<html>no data</html>"))
+    assert source_cryptojobslist.search("AI").blocked is True
+
+
+def test_source_cryptojobslist_blocked_when_no_jobs(monkeypatch):
+    empty = ('<script id="__NEXT_DATA__" type="application/json">'
+             '{"props":{"pageProps":{"jobs":[]}}}</script>')
+    monkeypatch.setattr(source_cryptojobslist, "http_get", lambda *a, **k: FakeResp(text=empty))
+    assert source_cryptojobslist.search("AI").blocked is True
+
+
+def test_source_dejob_parses(monkeypatch):
+    payload = {"data": {"results": [{
+        "positionName": "Smart Contract Engineer", "company": "GMGN", "location": "",
+        "base": "HK", "minSalary": 7000, "maxSalary": 10000,
+        "url": "https://dejob.ai/jobDetail?id=7105",
+        "tags": [{"tagId": 1, "tagName": "DEX"}, {"tagId": 2, "tagName": "DeFi"}],
+        "content": "review smart contracts for security issues",
+        "officeModeName": "Remote",
+    }]}}
+    monkeypatch.setattr(source_dejob, "http_get", lambda *a, **k: FakeResp(json_data=payload))
+    res = source_dejob.search("solidity", limit=5)
+    assert res.blocked is False
+    assert len(res.jobs) == 1
+    j = res.jobs[0]
+    assert j.title == "Smart Contract Engineer"
+    assert j.company == "GMGN"
+    assert j.location == "HK"           # location 空字串時 fallback 用 base
+    assert j.salary == "$7,000–10,000"
+    assert j.url == "https://dejob.ai/jobDetail?id=7105"
+    assert "DEX" in j.requirements
+    assert j.work_mode == "remote"
+
+
+def test_work_modes_parse_and_match():
+    from app.sources import work_modes
+    assert work_modes.parse_keys("onsite, remote,bogus,onsite") == ["onsite", "remote"]
+    assert work_modes.parse_keys("") == []
+    assert work_modes.match("onsite", []) is True          # 沒選 → 不限
+    assert work_modes.match(None, ["remote"]) is True       # 未知資料 → 不誤殺
+    assert work_modes.match("onsite", ["remote"]) is False  # 不符合 → 濾掉
+    assert work_modes.match("remote", ["remote", "hybrid"]) is True
+
+
+def test_source_dejob_blocked_on_error(monkeypatch):
+    def boom(*a, **k):
+        raise ConnectionError("nope")
+    monkeypatch.setattr(source_dejob, "http_get", boom)
+    assert source_dejob.search("AI").blocked is True
+
+
+def test_source_dejob_blocked_when_no_results(monkeypatch):
+    monkeypatch.setattr(source_dejob, "http_get",
+                         lambda *a, **k: FakeResp(json_data={"data": {"results": []}}))
+    assert source_dejob.search("AI").blocked is True
+
+
+def test_source_jobfrog_parses(monkeypatch):
+    payload = {"data": [{
+        "id": 13695, "company": "Google", "title": "Senior Product Design Engineer",
+        "location": "Taipei, Taiwan", "posted_date": "2026-07-02",
+        "website_link": "https://www.google.com/about/careers/applications/jobs/results/1",
+        "summary_zh_hq": "職責：產品設計", "tech_stack": ["NX", "Creo"],
+        "is_hybrid_remote": True,
+    }], "meta": {"total": 1, "page": 1, "pageSize": 5, "hasMore": False}}
+    monkeypatch.setattr(source_jobfrog, "http_get", lambda *a, **k: FakeResp(json_data=payload))
+    res = source_jobfrog.search("engineer", limit=5)
+    assert res.blocked is False
+    assert len(res.jobs) == 1
+    j = res.jobs[0]
+    assert j.title == "Senior Product Design Engineer"
+    assert j.company == "Google"
+    assert j.location == "Taipei, Taiwan"
+    assert j.salary is None                # 外商職缺頁一律不揭露薪資
+    assert j.url == "https://www.google.com/about/careers/applications/jobs/results/1"
+    assert "NX" in j.requirements
+    assert j.work_mode == "hybrid"
+
+
+def test_source_jobfrog_blocked_on_error(monkeypatch):
+    def boom(*a, **k):
+        raise ConnectionError("nope")
+    monkeypatch.setattr(source_jobfrog, "http_get", boom)
+    assert source_jobfrog.search("AI").blocked is True
+
+
+def test_source_jobfrog_blocked_when_no_data(monkeypatch):
+    monkeypatch.setattr(source_jobfrog, "http_get",
+                         lambda *a, **k: FakeResp(json_data={"data": [], "meta": {}}))
+    assert source_jobfrog.search("AI").blocked is True
 
 
 def test_registry_search_all_aggregates(monkeypatch):
