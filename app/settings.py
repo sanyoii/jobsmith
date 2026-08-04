@@ -64,7 +64,7 @@ def set_backend(name: str, *, persist: bool = False) -> None:
 # ---------------------------------------------------------------------------
 CLI_MODEL_CHOICES: dict[str, list[str]] = {
     "claude_cli": ["auto", "haiku", "sonnet", "opus"],
-    "codex_cli": ["auto", "gpt-5-codex", "gpt-5", "o4-mini"],
+    "codex_cli": ["auto", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
 }
 _cli_model: dict[str, str] = {"claude_cli": "auto", "codex_cli": "auto"}
 

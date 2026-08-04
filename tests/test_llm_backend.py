@@ -84,14 +84,14 @@ def test_claude_cli_model_override(monkeypatch):
 
 def test_codex_cli_model_override(monkeypatch):
     m = _reload(monkeypatch, "codex_cli")
-    settings_mod.set_cli_model("codex_cli", "gpt-5-codex")
+    settings_mod.set_cli_model("codex_cli", "gpt-5.6-terra")
     llm = m.get_llm("standard")
-    assert llm.model == "gpt-5-codex"
+    assert llm.model == "gpt-5.6-terra"
     assert llm._extra() == [
         "-c",
         'model_reasoning_effort="low"',
         "-c",
-        'model="gpt-5-codex"',
+        'model="gpt-5.6-terra"',
     ]
     settings_mod.set_cli_model("codex_cli", "auto")
     assert m.get_llm("standard").model is None       # auto = 用 codex 自身預設

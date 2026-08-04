@@ -1,7 +1,7 @@
 import tomllib
 from pathlib import Path
 
-from app.settings import MODEL_TIERS, get_model
+from app.settings import CLI_MODEL_CHOICES, MODEL_TIERS, get_model
 
 
 def test_model_tiers_have_three_levels():
@@ -17,6 +17,15 @@ def test_get_model_rejects_unknown_tier():
     import pytest
     with pytest.raises(KeyError):
         get_model("nope")
+
+
+def test_codex_cli_model_choices_are_current_recommended_models():
+    assert CLI_MODEL_CHOICES["codex_cli"] == [
+        "auto",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+    ]
 
 
 def test_requirements_include_openai_backend_dependency():
