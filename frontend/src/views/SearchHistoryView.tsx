@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react"
 import type { MouseEvent } from "react"
-import type { UserProfile, JobMatch } from "../types"
+import type { UserProfile, JobMatch, JobPosting } from "../types"
 import { resolveJd } from "../lib/resolveJd"
-import { JobList } from "../components/jobs/JobList"
+import { JobList, ExcludedRemoteJobs } from "../components/jobs/JobList"
 import { Card } from "../ui/Card"
 import { EmptyState } from "../ui/EmptyState"
 import { Search, Trash2, ArrowLeft, Building2 } from "../ui/icons"
@@ -12,7 +12,7 @@ interface SearchSummary {
 }
 interface SearchDetail {
   id: number; label: string; created_at: string; profile?: UserProfile | null;
-  payload: { jobs?: JobMatch[]; companyJobs?: JobMatch[] }
+  payload: { jobs?: JobMatch[]; companyJobs?: JobMatch[]; excluded?: JobPosting[] }
 }
 
 function fmtDate(iso: string) {
@@ -22,7 +22,7 @@ function fmtDate(iso: string) {
 
 export function SearchHistoryView(
   { active, onPick }:
-  { active: boolean; onPick: (jd: string, profile?: UserProfile | null) => void },
+  { active: boolean; onPick: (jd: string, profile?: UserProfile | null, jobUrl?: string | null) => void },
 ) {
   const [list, setList] = useState<SearchSummary[]>([])
   const [detail, setDetail] = useState<SearchDetail | null>(null)
@@ -55,7 +55,7 @@ export function SearchHistoryView(
     const profile: UserProfile | null = detail.profile || null
     const aiJobs: JobMatch[] = p.jobs || []
     const companyJobs: JobMatch[] = p.companyJobs || []
-    const pick = async (m: JobMatch) => onPick(await resolveJd(m.job), profile)
+    const pick = async (m: JobMatch) => onPick(await resolveJd(m.job), profile, m.job.url)
     return (
       <div>
         <button onClick={() => setDetail(null)}
@@ -79,6 +79,7 @@ export function SearchHistoryView(
             <JobList matches={companyJobs} onPick={pick} />
           </div>
         )}
+        <ExcludedRemoteJobs jobs={p.excluded || []} />
         {busy && <p className="text-sm text-slate-400 mt-3">載入中…</p>}
       </div>
     )

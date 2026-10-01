@@ -7,6 +7,7 @@ import {
   MatchCard, CompanyCard, ResumeDoc, CoverLetterDoc, InterviewKitDoc, CritiqueCard,
 } from "../components/pipeline/Documents"
 import { Card } from "../ui/Card"
+import { JobVerificationPanel } from "../components/jobs/JobVerificationPanel"
 import { Button } from "../ui/Button"
 import { EmptyState } from "../ui/EmptyState"
 import {
@@ -44,6 +45,7 @@ export function PipelineView(
   },
 ) {
   const [jd, setJd] = useState("")
+  const [jobUrl, setJobUrl] = useState<string | null>(null)
   const [manualJd, setManualJd] = useState("")
   const [pendingJd, setPendingJd] = useState("")
   const [phase, setPhase] = useState<Phase>("idle")
@@ -140,7 +142,7 @@ export function PipelineView(
       const d = await (await fetch(`/api/history/${packageId}`)).json()
       if (d && d.package) {
         const pkg = d.package as PipelineState
-        setState(pkg); if (d.jd_text) setJd(d.jd_text)
+        setState(pkg); setJobUrl(d.job_url || null); if (d.jd_text) setJd(d.jd_text)
         // 已完成的包是一次載入的，沒有逐節點事件 → 依成品反推已完成節點，讓左側編排顯示綠燈而非全部待跑。
         const nd: string[] = []
         if (pkg.parsed_job) nd.push("parse")
@@ -166,7 +168,7 @@ export function PipelineView(
     try {
       const r = await fetch("/api/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jd_text: jdText, profile: effectiveProfile, preferences: preferences ?? null }),
+        body: JSON.stringify({ jd_text: jdText, profile: effectiveProfile, preferences: preferences ?? null, job_url: jobUrl }),
       })
       if (!r.ok) {
         const d = await r.json().catch(() => ({}))
@@ -184,7 +186,7 @@ export function PipelineView(
   useEffect(() => {
     if (!seed?.jd) return
     const timer = window.setTimeout(() => {
-      resetView(); setPendingJd(seed.jd); setJd(""); setManualJd(""); setPhase("idle"); setStatus("")
+      resetView(); setJobUrl(seed.jobUrl || null); setPendingJd(seed.jd); setJd(""); setManualJd(""); setPhase("idle"); setStatus("")
     }, 0)
     return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -294,6 +296,7 @@ export function PipelineView(
             onDeleteProfile={onDeleteProfile}
             onClearActiveProfile={onClearActiveProfile}
           />
+          {jobUrl && <JobVerificationPanel key={jobUrl} jobUrl={jobUrl} />}
           <div className="mt-5 flex flex-wrap gap-2">
             <Button icon={Sparkles} disabled={!confirmProfile} onClick={() => confirmRun(true)}>
               使用此 Profile 生成
@@ -316,7 +319,7 @@ export function PipelineView(
             className="w-full border border-slate-300 rounded-lg p-3 text-sm h-32 focus:outline-none focus:ring-2 focus:ring-brand-200"
             placeholder="貼上職缺 JD 文字…" value={manualJd} onChange={(e) => setManualJd(e.target.value)} />
           <div className="mt-3">
-            <Button icon={Sparkles} disabled={!manualJd.trim()} onClick={() => setPendingJd(manualJd)}>
+            <Button icon={Sparkles} disabled={!manualJd.trim()} onClick={() => { setJobUrl(null); setPendingJd(manualJd) }}>
               確認生成設定
             </Button>
           </div>

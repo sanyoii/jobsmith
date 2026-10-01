@@ -1,0 +1,29 @@
+{
+  "environment": "real official page fetch and eligibility checker; controlled source list/profile/AI; memory DB",
+  "assessment": {
+    "status": "fail",
+    "remote": {
+      "value": "pass",
+      "reason": "Location Type: Remote",
+      "evidence": [
+        "Location Type: Remote",
+        "Location: Remote - Brazil"
+      ]
+    },
+    "taiwan": {
+      "value": "fail",
+      "reason": "Location: Brazil",
+      "evidence": [
+        "Location: Brazil",
+        "Applicants must reside in: Brazil",
+        "Location: Remote - Brazil"
+      ]
+    },
+    "source_url": "https://jobs.ashbyhq.com/sardine/ddf2be67-bc69-4227-8ca0-306c8710602a",
+    "checked_at": "2026-10-01T12:41:04.738829+00:00",
+    "method": "page"
+  },
+  "rank_total": 0,
+  "demo_loaded": false,
+  "http": 200
+}

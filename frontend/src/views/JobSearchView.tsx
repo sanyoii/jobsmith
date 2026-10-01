@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react"
 import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent } from "react"
-import type { CandidateProfile, JobMatch, UserProfile, JobsAutoEvent } from "../types"
+import type { CandidateProfile, JobMatch, JobPosting, UserProfile, JobsAutoEvent } from "../types"
 import { readSSE } from "../sse"
 import { SAMPLE_RESUME } from "../sampleResume"
 import { resolveJd } from "../lib/resolveJd"
 import { newTaskId, stopTask } from "../lib/taskControl"
 import { profileDisplayName, profileSummary } from "../lib/profiles"
-import { JobList } from "../components/jobs/JobList"
-import { SRC_LABEL } from "../lib/sources"
+import { JobList, ExcludedRemoteJobs } from "../components/jobs/JobList"
+import { SRC_LABEL, SOURCES } from "../lib/sources"
 import { Card } from "../ui/Card"
 import { Button } from "../ui/Button"
 import { Badge } from "../ui/Badge"
@@ -17,11 +17,11 @@ import { Search, Upload, Loader2, ExternalLink, AlertTriangle, CheckCircle2, XCi
 
 const SNAP_KEY = "copilot.jobsearch.v1"  // 上次搜尋結果快取（重新整理/重開沿用）
 
-type SourceStat = { source: string; count: number; blocked: boolean }
+type SourceStat = { source: string; count: number; blocked: boolean; status?: string; raw_count?: number; queries?: string[] }
 // 串流累積容器（完成後整包存進搜尋紀錄）；state 更新非同步，存檔讀這裡的即時值。
 type SearchAcc = {
-  jobs: JobMatch[]; companyJobs: JobMatch[]
-  queries: string[]; sources: SourceStat[]; linkedin: string; fallback: boolean
+  jobs: JobMatch[]; companyJobs: JobMatch[]; excluded: JobPosting[]
+  queries: string[]; queryPlan: Record<string, string[]>; sources: SourceStat[]; linkedin: string; fallback: boolean
   profile: UserProfile | null
 }
 // 同分時以 url 決定先後，讓分批串流到達的順序不影響最終排序（可重現）。
@@ -45,18 +45,18 @@ const WORK_MODES = [
   { key: "remote", label: "全遠端" },
 ]
 
-function mergeSource(arr: SourceStat[], ev: { source: string; count: number; blocked: boolean }): SourceStat[] {
+function mergeSource(arr: SourceStat[], ev: SourceStat): SourceStat[] {
   const idx = arr.findIndex((x) => x.source === ev.source)
-  if (idx < 0) return [...arr, { source: ev.source, count: ev.count, blocked: ev.blocked }]
+  if (idx < 0) return [...arr, { ...ev }]
   const copy = [...arr]
-  copy[idx] = { source: ev.source, count: copy[idx].count + ev.count, blocked: copy[idx].blocked && ev.blocked }
+  copy[idx] = { ...ev, count: copy[idx].count + ev.count, blocked: copy[idx].blocked && ev.blocked }
   return copy
 }
 
 export function JobSearchView(
   { onPick, onProfile, activeProfile, formOpen, setFormOpen, onHasResults }:
   {
-    onPick: (jd: string, profile?: UserProfile | null) => void
+    onPick: (jd: string, profile?: UserProfile | null, jobUrl?: string | null) => void
     onProfile?: (p: UserProfile, meta?: { label?: string; resumeLabel?: string }) => void
     activeProfile?: CandidateProfile | null
     formOpen: boolean                    // 搜尋表單是否展開（提升到 App，收合鈕放右上角）
@@ -69,14 +69,18 @@ export function JobSearchView(
   const [done, setDone] = useState(false)
   const [status, setStatus] = useState("")
   const [queries, setQueries] = useState<string[]>([])
+  const [queryPlan, setQueryPlan] = useState<Record<string, string[]>>({})
   const [customQueries, setCustomQueries] = useState<string[]>([])  // queries 中哪些是使用者自訂（Badge 區分用）
   const [sources, setSources] = useState<SourceStat[]>([])
   const [jobs, setJobs] = useState<JobMatch[]>([])
   const [companyJobs, setCompanyJobs] = useState<JobMatch[]>([])
+  const [excluded, setExcluded] = useState<JobPosting[]>([])
+  const [taiwanRemote, setTaiwanRemote] = useState(true)
   const [rankTotal, setRankTotal] = useState(0)
   const [minFit, setMinFit] = useState(0)            // 適配色帶門檻（0/60/80）
   const [regions, setRegions] = useState<string[]>([])  // 搜尋地點（縣市 key；空 = 全台）
   const [workModes, setWorkModes] = useState<string[]>([])  // 搜尋工作形式（key；空 = 不限）
+  const [srcFilter, setSrcFilter] = useState<string[]>([])  // 搜尋來源（key；空 = 全部來源；命名避開既有 sources 狀態）
   const [linkedin, setLinkedin] = useState("")
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [blockedNote, setBlockedNote] = useState("")
@@ -106,7 +110,10 @@ export function JobSearchView(
       if (Array.isArray(s.keywords)) setKeywords(s.keywords)
       if (Array.isArray(s.jobs)) setJobs(s.jobs)
       if (Array.isArray(s.companyJobs)) setCompanyJobs(s.companyJobs)
+      if (Array.isArray(s.excluded)) setExcluded(s.excluded)
+      if (typeof s.taiwanRemote === "boolean") setTaiwanRemote(s.taiwanRemote)
       if (Array.isArray(s.queries)) setQueries(s.queries)
+      if (s.queryPlan && typeof s.queryPlan === "object") setQueryPlan(s.queryPlan)
       if (Array.isArray(s.customQueries)) setCustomQueries(s.customQueries)
       if (Array.isArray(s.sources)) setSources(s.sources)
       if (typeof s.linkedin === "string") setLinkedin(s.linkedin)
@@ -115,9 +122,11 @@ export function JobSearchView(
       if (typeof s.pages === "number") setPages(s.pages)
       if (Array.isArray(s.regions)) setRegions(s.regions)
       if (Array.isArray(s.workModes)) setWorkModes(s.workModes)
+      if (Array.isArray(s.srcFilter)) setSrcFilter(s.srcFilter)
       if (s.profile) setProfile(s.profile as UserProfile)
       if (Array.isArray(s.jobs) && s.jobs.length) { setDone(true); setFormOpen(false) }
       else if (Array.isArray(s.companyJobs) && s.companyJobs.length) { setDone(true); setFormOpen(false) }
+      else if (Array.isArray(s.excluded) && s.excluded.length) setDone(true)
     } catch { /* 忽略毀損快取 */ }
     // 僅開啟時還原一次；onProfile 為穩定的 setState，不需列入依賴。
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -127,12 +136,12 @@ export function JobSearchView(
     if (!done) return
     try {
       localStorage.setItem(SNAP_KEY, JSON.stringify({
-        text, companies, keywords, jobs, companyJobs, queries, customQueries, sources,
-        linkedin, fallback, searchedCompanies, profile, pages, regions, workModes,
+        text, companies, keywords, jobs, companyJobs, excluded, taiwanRemote, queries, queryPlan, customQueries, sources,
+        linkedin, fallback, searchedCompanies, profile, pages, regions, workModes, srcFilter,
       }))
     } catch { /* localStorage 不可用/已滿則略過 */ }
-  }, [done, jobs, companyJobs, queries, customQueries, sources, linkedin, fallback,
-      searchedCompanies, profile, text, companies, keywords, pages, regions, workModes])
+  }, [done, jobs, companyJobs, excluded, taiwanRemote, queries, queryPlan, customQueries, sources, linkedin, fallback,
+      searchedCompanies, profile, text, companies, keywords, pages, regions, workModes, srcFilter])
 
   // 回報是否已有結果，App 才知道要不要在右上角顯示「收合搜尋條件」鈕。
   useEffect(() => {
@@ -178,9 +187,12 @@ export function JobSearchView(
   function toggleWorkMode(k: string) {
     setWorkModes((ws) => (ws.includes(k) ? ws.filter((x) => x !== k) : [...ws, k]))
   }
+  function toggleSource(k: string) {
+    setSrcFilter((ss) => (ss.includes(k) ? ss.filter((x) => x !== k) : [...ss, k]))
+  }
 
   async function saveSearch(acc: SearchAcc, cs: string[]) {
-    if (!acc.jobs.length && !acc.companyJobs.length) return
+    if (!acc.jobs.length && !acc.companyJobs.length && !acc.excluded.length) return
     const name = (acc.profile && (acc.profile as Record<string, unknown>).name) || ""
     const label = [name || "搜尋", acc.queries[0] || ""].filter(Boolean).join(" · ")
     try {
@@ -189,8 +201,8 @@ export function JobSearchView(
         body: JSON.stringify({
           label, profile: acc.profile,
           payload: {
-            jobs: acc.jobs, companyJobs: acc.companyJobs,
-            queries: acc.queries, sources: acc.sources, searchedCompanies: cs,
+            jobs: acc.jobs, companyJobs: acc.companyJobs, excluded: acc.excluded,
+            queries: acc.queries, query_plan: acc.queryPlan, sources: acc.sources, searchedCompanies: cs,
             linkedin: acc.linkedin, fallback: acc.fallback,
           },
         }),
@@ -200,8 +212,10 @@ export function JobSearchView(
 
   function appendSearchOptions(form: FormData) {
     form.append("pages", String(pages))
+    form.append("taiwan_remote", String(taiwanRemote))
     if (regions.length) form.append("region", regions.join(","))
     if (workModes.length) form.append("work_mode", workModes.join(","))
+    if (srcFilter.length) form.append("sources", srcFilter.join(","))
   }
 
   async function go(
@@ -230,11 +244,11 @@ export function JobSearchView(
     taskIdRef.current = taskId
     stoppingRef.current = false
 
-    setBusy(true); setDone(false); setError(""); setJobs([]); setCompanyJobs([]); setQueries([]); setCustomQueries([]); setSources([])
+    setBusy(true); setDone(false); setError(""); setJobs([]); setCompanyJobs([]); setExcluded([]); setQueries([]); setQueryPlan({}); setCustomQueries([]); setSources([])
     setLinkedin(""); setProfile(null); setBlockedNote(""); setFallback(false); setRankTotal(0)
     setStatus(opts.initialStatus || "上傳中…")
     // 串流累積（供完成後存檔；state 更新非同步，存檔讀這裡的即時值）。
-    const acc: SearchAcc = { jobs: [], companyJobs: [], queries: [], sources: [], linkedin: "", fallback: false, profile: null }
+    const acc: SearchAcc = { jobs: [], companyJobs: [], excluded: [], queries: [], queryPlan: {}, sources: [], linkedin: "", fallback: false, profile: null }
     let hadError = false
     try {
       const resp = await fetch("/api/jobs/auto", { method: "POST", body: form, signal: ctrl.signal })
@@ -247,21 +261,22 @@ export function JobSearchView(
             onProfile?.(ev.data as UserProfile, { resumeLabel })
           }
         }
-        else if (ev.type === "queries") { acc.queries = ev.queries; setQueries(ev.queries); setCustomQueries(ev.custom || []) }
+        else if (ev.type === "queries") { acc.queries = ev.queries; acc.queryPlan = ev.by_source || {}; setQueryPlan(acc.queryPlan); setQueries(ev.queries); setCustomQueries(ev.custom || []) }
         else if (ev.type === "source") { acc.sources = mergeSource(acc.sources, ev); setSources((s) => mergeSource(s, ev)) }
-        else if (ev.type === "all_blocked") setBlockedNote(ev.message)
+        else if (ev.type === "all_blocked" || ev.type === "search_empty") setBlockedNote(ev.message)
         else if (ev.type === "rank_start") { acc.fallback = Boolean(ev.fallback); setFallback(Boolean(ev.fallback)); setRankTotal(ev.total || 0); acc.jobs = []; setJobs([]) }
         else if (ev.type === "ranked_batch") {
           acc.jobs = sortByFit([...acc.jobs, ...(ev.data as JobMatch[])])
           setJobs(acc.jobs)
         }
+        else if (ev.type === "remote_excluded") { acc.excluded = [...acc.excluded, ...ev.jobs]; setExcluded(acc.excluded) }
         else if (ev.type === "company_jobs") { acc.companyJobs = sortByFit(ev.data as JobMatch[]); setCompanyJobs(acc.companyJobs) }
         else if (ev.type === "linkedin") { acc.linkedin = ev.url; setLinkedin(ev.url) }
         else if (ev.type === "stopped") { stoppingRef.current = true; hadError = true; setStatus(ev.message || "已停止搜尋") }
         else if (ev.type === "error") { hadError = true; setError(ev.message) }
         else if (ev.type === "done") setDone(true)
       })
-      if (!hadError && (acc.jobs.length || acc.companyJobs.length)) {
+      if (!hadError && (acc.jobs.length || acc.companyJobs.length || acc.excluded.length)) {
         await saveSearch(acc, cs)  // 自動存進「搜尋紀錄」
       }
       if (acc.jobs.length || acc.companyJobs.length) setFormOpen(false)  // 有結果就收合表單、凸顯職缺列表
@@ -329,7 +344,7 @@ export function JobSearchView(
     setFile(f); setError(""); e.target.value = ""
   }
 
-  const pick = async (m: JobMatch) => onPick(await resolveJd(m.job), profile)
+  const pick = async (m: JobMatch) => onPick(await resolveJd(m.job), profile, m.job.url)
 
   const passes = (m: JobMatch) => m.fit_score >= minFit  // 地區已在搜尋時於後端套用
   const visibleJobs = jobs.filter(passes)
@@ -473,26 +488,55 @@ export function JobSearchView(
           <p className="text-xs text-slate-400 mt-1">選了縣市就只找那些地區的職缺，所有來源一致生效（104 直接從來源端篩，其餘來源依職缺地點過濾）。</p>
         </div>
 
+        <div className="mt-4 rounded-lg bg-brand-50 p-3">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={taiwanRemote} disabled={busy} onChange={(e) => setTaiwanRemote(e.target.checked)} />
+            優先找全遠端、可從台灣工作的職缺
+          </label>
+          <p className="text-xs text-slate-600 mt-1">自動讀取內頁；明確不符者排除，資訊不足者保留為待確認。</p>
+        </div>
         <div className="mt-4">
           <label className="text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1.5">
             <Briefcase className="w-4 h-4 text-slate-400" />工作形式（選填、可多選；不選＝不限）
           </label>
           <div className="flex flex-wrap gap-1.5">
-            <button type="button" onClick={() => setWorkModes([])} disabled={busy} aria-pressed={workModes.length === 0}
+            <button type="button" onClick={() => setWorkModes([])} disabled={busy || taiwanRemote} aria-pressed={workModes.length === 0}
               className={`px-2.5 py-1 rounded-lg border text-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 disabled:opacity-50 ${
                 workModes.length === 0 ? "bg-brand-600 text-white border-brand-600" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
               }`}>不限</button>
             {WORK_MODES.map((w) => {
               const on = workModes.includes(w.key)
               return (
-                <button key={w.key} type="button" onClick={() => toggleWorkMode(w.key)} disabled={busy} aria-pressed={on}
+                <button key={w.key} type="button" onClick={() => toggleWorkMode(w.key)} disabled={busy || taiwanRemote} aria-pressed={on}
                   className={`px-2.5 py-1 rounded-lg border text-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 disabled:opacity-50 ${
                     on ? "bg-brand-600 text-white border-brand-600" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
                   }`}>{w.label}</button>
               )
             })}
           </div>
-          <p className="text-xs text-slate-400 mt-1">選了工作形式就只找符合的職缺；來源沒標示工作形式的職缺一律保留（無法判斷時不誤殺）。</p>
+          <p className="text-xs text-slate-400 mt-1">{taiwanRemote ? "已啟用台灣全遠端初查；未標示的職缺也會保留並讀取內頁確認。" : "依來源工作形式篩選；未標示的職缺可能被過濾。"}</p>
+        </div>
+
+        <div className="mt-4">
+          <label className="text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1.5">
+            <Layers className="w-4 h-4 text-slate-400" />職缺來源（選填、可多選；不選＝全部來源）
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" onClick={() => setSrcFilter([])} disabled={busy} aria-pressed={srcFilter.length === 0}
+              className={`px-2.5 py-1 rounded-lg border text-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 disabled:opacity-50 ${
+                srcFilter.length === 0 ? "bg-brand-600 text-white border-brand-600" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+              }`}>不限</button>
+            {SOURCES.map((s) => {
+              const on = srcFilter.includes(s.key)
+              return (
+                <button key={s.key} type="button" onClick={() => toggleSource(s.key)} disabled={busy} aria-pressed={on}
+                  className={`px-2.5 py-1 rounded-lg border text-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 disabled:opacity-50 ${
+                    on ? "bg-brand-600 text-white border-brand-600" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+                  }`}>{s.label}</button>
+              )
+            })}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">選了來源就只搜尋這些平台；不選則照舊跑全部來源。</p>
         </div>
 
         <div className="flex flex-wrap gap-2 mt-4 items-center">
@@ -518,12 +562,18 @@ export function JobSearchView(
             ))}
           </div>
         )}
+        {Object.keys(queryPlan).length > 0 && <details className="mt-2 text-xs text-slate-600">
+          <summary>查看各站實際搜尋詞（每站最多五組）</summary>
+          {Object.entries(queryPlan).map(([source, terms]) => <p key={source} className="mt-1">
+            {SRC_LABEL[source] || source}：{terms.join("、")}{source === "defijobs" ? "（抓取一次後比對）" : ""}
+          </p>)}
+        </details>}
         {sources.length > 0 && (
           <div className="mt-2 text-xs text-slate-500 flex flex-wrap gap-3">
             {sources.map((s, i) => (
               <span key={i} className={`inline-flex items-center gap-1 ${s.blocked ? "text-slate-400" : "text-emerald-600"}`}>
                 {s.blocked ? <XCircle className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
-                {SRC_LABEL[s.source] || s.source}{s.blocked ? " 暫無" : ` ${s.count}`}
+                {SRC_LABEL[s.source] || s.source}{s.blocked ? " 來源失敗" : s.status === "filtered_out" ? " 條件過濾後 0" : s.status === "no_matches" ? " 無匹配" : " " + s.count}{s.status === "partial_failure" ? "（部分請求失敗）" : ""}
               </span>
             ))}
           </div>
@@ -582,7 +632,7 @@ export function JobSearchView(
           <EmptyState
             icon={Search}
             title="這次沒有取得職缺結果"
-            desc="即時來源可能暫時被擋，可調整履歷關鍵字再試。"
+            desc={excluded.length ? "取得的職缺有明確條件不符，可展開下方排除清單查看依據。" : "可查看來源狀態與搜尋詞，再調整搜尋條件。"}
             action={linkedin ? (
               <a href={linkedin} target="_blank" rel="noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300">
@@ -618,6 +668,7 @@ export function JobSearchView(
         </div>
       )}
 
+      <ExcludedRemoteJobs jobs={excluded} />
       {hiddenCount > 0 && (
         <p className="text-xs text-slate-400 mt-3">已依篩選條件隱藏 {hiddenCount} 筆職缺。</p>
       )}

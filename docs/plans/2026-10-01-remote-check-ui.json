@@ -1,0 +1,17 @@
+{
+  "environment": "isolated headless Chromium; memory DB; controlled agents, source and page responses; no user Chrome",
+  "checks": {
+    "enabled_by_default": true,
+    "pass_group": true,
+    "pending_group": true,
+    "excluded_group": true,
+    "no_sardine_recommendation": true,
+    "sardine_reason": true,
+    "evidence_visible": true,
+    "desktop_no_overflow": true,
+    "mobile_no_overflow": true,
+    "history_contains_exclusion": true,
+    "history_preserves_checks": true,
+    "reload_preserves_groups": true
+  }
+}

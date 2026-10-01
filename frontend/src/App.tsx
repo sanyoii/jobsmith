@@ -136,10 +136,10 @@ export default function App() {
     fetch("/api/memory/profile", { method: "DELETE" }).catch(() => {})
   }
 
-  function pickJob(jd: string, picked?: UserProfile | null) {
+  function pickJob(jd: string, picked?: UserProfile | null, jobUrl?: string | null) {
     const nextProfile = picked ?? activeProfile?.profile ?? null
     if (picked) activateSessionProfile(picked, { resumeLabel: "搜尋紀錄履歷" })
-    setSeed({ jd, profile: nextProfile, nonce: Date.now() })
+    setSeed({ jd, profile: nextProfile, nonce: Date.now(), jobUrl })
     setTab("pipeline")
   }
 

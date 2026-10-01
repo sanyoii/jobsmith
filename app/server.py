@@ -11,11 +11,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, Form, UploadFile
+from fastapi import Body, FastAPI, File, Form, UploadFile, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.memory import MemorySaver
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, ValidationError
 
 from app import settings, task_control
 from app.agents.company_jobs import find_company_jobs
@@ -26,12 +26,16 @@ from app.graph import build_graph
 from app.intake.resume_parser import extract_text
 from app.models import Profile
 from app.sources import regions, work_modes
-from app.sources.registry import linkedin_search_url, search_all
+from app.intake.remote_eligibility import check_jobs as check_remote_jobs
+from app.sources.registry import SEARCHABLE, linkedin_search_url, parse_sources, search_all
+from app.sources.query_plan import plan_queries, grouped_requests, english_query
 from app.store import db as _appdb
 from app.store import history as _history
 from app.store import memory as _memory
 from app.store import resume_checks as _resume_checks
 from app.store import searches as _searches
+from app.store import application_events as _events
+from app.store import job_verifications as _verifications
 
 app = FastAPI(title="Jobsmith")
 
@@ -262,6 +266,12 @@ def _run_pipeline_bg(run: "_Run", initial: dict, config: dict, graph) -> None:
 
 class RunBody(BaseModel):
     jd_text: str
+    job_url: str | None = None
+
+    @field_validator('job_url')
+    @classmethod
+    def source_url(cls, value):
+        return _verifications.safe_url(value) if value else None
     # 使用者真實履歷結構（由 /api/jobs/auto 或 /api/resume/evaluate 的 profile 事件帶入）。
     # 缺省時才退回 demo profile（CLI / 測試後備）。
     profile: dict | None = None
@@ -411,6 +421,17 @@ def _parse_keywords(raw: str) -> list[str]:
     return out[:3]
 
 
+def _screen_remote(jobs, token, cache):
+    if not jobs:
+        return jobs
+    yield _sse({"type": "progress", "step": "remote_check", "message": f"讀取職缺內頁，確認全遠端與台灣工作條件…（{len(jobs)} 筆）"})
+    checked = check_remote_jobs(jobs, token, cache=cache)
+    excluded = [j for j in checked if j.remote_eligibility and j.remote_eligibility.status == "fail"]
+    if excluded:
+        yield _sse({"type": "remote_excluded", "jobs": [j.model_dump() for j in excluded]})
+    return [j for j in checked if not j.remote_eligibility or j.remote_eligibility.status != "fail"]
+
+
 @app.post("/api/jobs/auto")
 def jobs_auto(
     file: UploadFile | None = File(default=None),
@@ -421,6 +442,8 @@ def jobs_auto(
     pages: int = Form(default=2),
     region: str = Form(default=""),
     work_mode: str = Form(default=""),
+    taiwan_remote: bool = Form(default=False),
+    sources: str = Form(default=""),
     task_id: str = Form(default=""),
 ):
     """履歷 → 自動找職缺：解析履歷 → 推導關鍵字 → 搜尋多站 →（選填）併入指定公司的開缺 → 依履歷排序。
@@ -429,11 +452,13 @@ def jobs_auto(
     pages：每個來源抓幾頁（使用者可在前端調整，預設 2、夾在 1–5）。
     region：搜尋前選定的縣市（逗號串接 key）。對所有來源一致生效——104 於來源端用 area
             代碼篩選（涵蓋更全），其餘來源在結果端用 location 過濾，使用者看到的就是同一份地區結果。
+    sources：使用者選定的職缺來源（逗號串接 key）。空 = 全部來源（維持原行為）。
     """
     pages = max(1, min(5, pages))
     region_keys = regions.parse_keys(region)
     area = regions.area_codes(region_keys)
     work_mode_keys = work_modes.parse_keys(work_mode)
+    source_keys = parse_sources(sources)
     text, text_error = _resume_text_from_request(file, resume_text)
     posted_profile, profile_error = (None, None) if text.strip() else _profile_from_json(profile_json)
     company_list = _parse_companies(companies)
@@ -473,38 +498,59 @@ def jobs_auto(
             custom_lower = {k.lower() for k in custom_keywords}
             queries = (custom_keywords
                        + [q for q in derived_queries if q.lower() not in custom_lower])[:5]
-            yield _sse({"type": "queries", "queries": queries, "custom": custom_keywords})
+            query_plan = plan_queries(queries, source_keys or list(SEARCHABLE), custom_keywords)
+            yield _sse({"type": "queries", "queries": queries, "custom": custom_keywords, "by_source": query_plan})
 
             seen: set[str] = set()
             resume_jobs = []
-            for q in queries[:5]:
+            source_stats = {}
+            for q, selected_sources in grouped_requests(query_plan):
                 token.check()
-                yield _sse({"type": "progress", "step": "search", "message": f"搜尋「{q}」中…"})
-                for res in search_all(q, limit=15, pages=pages, area=area):
+                label = " / ".join(q) if isinstance(q, list) else q
+                yield _sse({"type": "progress", "step": "search", "message": f"搜尋「{label}」中…"})
+                for res in search_all(q, sources=selected_sources, limit=15, pages=pages, area=area):
                     token.check()
-                    # 104 已於來源端用 area 篩過；其餘來源在結果端依 location 過濾，地區一致生效。
+                    stat = source_stats.setdefault(res.source, {"raw": set(), "kept": set(), "ok": 0, "errors": 0})
+                    stat["errors" if res.blocked else "ok"] += 1
+                    stat["raw"].update(j.url or (j.title + j.company) for j in res.jobs)
                     kept = [j for j in res.jobs
                             if (res.source == "104" or regions.match_location(j.location, region_keys))
-                            and work_modes.match(
+                            and (taiwan_remote or work_modes.match(
                                 work_modes.effective(j.work_mode, j.title, j.location),
-                                work_mode_keys)]
-                    yield _sse({"type": "source", "source": res.source,
-                                "count": len(kept), "blocked": res.blocked})
+                                work_mode_keys))]
+                    stat["kept"].update(j.url or (j.title + j.company) for j in kept)
                     for j in kept:
                         key = j.url or (j.title + j.company)
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        resume_jobs.append(j)
+                        if key not in seen:
+                            seen.add(key)
+                            resume_jobs.append(j)
+            for source, stat in source_stats.items():
+                status = ("failed" if not stat["ok"] else "partial_failure" if stat["errors"]
+                          else "filtered_out" if stat["raw"] and not stat["kept"]
+                          else "ok" if stat["kept"] else "no_matches")
+                yield _sse({"type": "source", "source": source, "count": len(stat["kept"]),
+                            "raw_count": len(stat["raw"]), "blocked": not bool(stat["ok"]),
+                            "status": status, "queries": query_plan.get(source, [])})
 
-            # 誠實降級：AI 搜尋零結果 → 告知並改用後備樣本職缺，demo 永遠有東西看。
+            remote_cache = {}
+            if taiwan_remote:
+                resume_jobs = yield from _screen_remote(resume_jobs, token, remote_cache)
             used_fallback = False
             if not resume_jobs:
-                used_fallback = True
-                yield _sse({"type": "all_blocked",
-                            "message": "即時職缺來源暫時取得不到結果，以下改用範例職缺示意，"
-                                       "並請改用下方 LinkedIn / 104 直連搜尋。"})
-                resume_jobs = _load_fallback_jobs()
+                all_failed = bool(source_stats) and not any(stat["ok"] for stat in source_stats.values())
+                if all_failed:
+                    used_fallback = True
+                    yield _sse({"type": "all_blocked",
+                                "message": "所有來源請求均失敗；以下僅為範例資料，不是本次即時搜尋結果。"})
+                    resume_jobs = _load_fallback_jobs()
+                else:
+                    partial = any(stat["errors"] for stat in source_stats.values())
+                    filtered = any(stat["raw"] for stat in source_stats.values())
+                    reason = "partial_failure" if partial else "filtered_out" if filtered else "no_matches"
+                    message = ("部分來源失敗，其他來源沒有符合目前條件的結果。" if partial
+                               else "抓到的職缺經地區／工作方式或台灣遠端條件檢查後為零。" if filtered
+                               else "本次查詢沒有匹配職缺；不代表網站沒有其他職缺。")
+                    yield _sse({"type": "search_empty", "reason": reason, "message": message})
 
             # ① AI 依履歷找到的職缺：分批『並行』排序、逐批串流給前端（邊收邊排序/篩選），
             # 不必等全部跑完；批次以穩定鍵排序，讓同一輸入分批一致。
@@ -517,7 +563,7 @@ def jobs_auto(
                 yield _sse({"type": "ranked_batch", "data": [m.model_dump() for m in batch]})
             li_loc = f"{region_keys[0]}, Taiwan" if region_keys else "Taiwan"
             yield _sse({"type": "linkedin",
-                        "url": linkedin_search_url(queries[0] if queries else "", li_loc)})
+                        "url": linkedin_search_url(english_query(queries[0]) if queries else "", li_loc)})
 
             # ② 使用者指定的公司開缺：與 AI 搜尋『分開』收集、分開排序、分開顯示，
             # 避免低適配的公司職缺佔據 AI 推薦名單前段、又吃掉排序名額。
@@ -540,6 +586,8 @@ def jobs_auto(
                     added += 1
                 yield _sse({"type": "source", "source": company,
                             "count": added, "blocked": added == 0})
+            if taiwan_remote:
+                company_pool = yield from _screen_remote(company_pool, token, remote_cache)
             if company_pool:
                 yield _sse({"type": "progress", "step": "rank",
                             "message": f"依履歷排序 {len(company_pool)} 筆指定公司職缺…"})
@@ -970,10 +1018,12 @@ def run(body: RunBody):
             {"error": f"履歷資料無法使用，請重新上傳履歷再試。（{_err_detail(exc)}）"},
             status_code=400)
 
+    if body.job_url and not _appdb.evidence_schema_ready(_appdb.get_conn()):
+        return JSONResponse({"error": "查證功能尚未完成資料庫遷移；可先使用未連結來源的舊流程"}, status_code=503)
     thread_id = uuid.uuid4().hex
     config = {"configurable": {"thread_id": thread_id}}
     pid = _history.create_running_package(
-        thread_id, body.jd_text, _jd_title(body.jd_text), profile.model_dump())
+        thread_id, body.jd_text, _jd_title(body.jd_text), profile.model_dump(), job_url=body.job_url)
     initial = {
         "jd_text": body.jd_text, "profile": profile,
         "parsed_job": None, "match_report": None, "supervisor_decision": None,
@@ -1077,6 +1127,10 @@ def privacy_data_delete():
     _searches.delete_all_searches()
     _resume_checks.delete_all_checks()
     _history.delete_all_packages()
+    conn = _appdb.get_conn()
+    if _appdb.evidence_schema_ready(conn):
+        with _appdb.LOCK, conn:
+            conn.execute("DELETE FROM job_verifications")
     with _RUNS_LOCK:
         _RUNS.clear()
     return {"ok": True}
@@ -1129,15 +1183,25 @@ def history_outcome(pid: int, payload: dict = Body(...)):
 
     note 欄位僅在 payload 有帶時更新，避免只改狀態把既有備註洗掉。
     """
+
     status = payload.get("status")
-    if status is not None and status not in _OUTCOME_STATUSES:
-        return JSONResponse({"error": "無效的投遞結果狀態"}, status_code=400)
-    note = payload.get("note")
-    _history.set_outcome(
-        pid, status,
-        note if isinstance(note, str) else None,
-        update_note="note" in payload)
-    return {"ok": True}
+    new_format = any(k in payload for k in ("evidence", "idempotency_key", "occurred_at", "expected_event_id", "correction"))
+    try:
+        if new_format:
+            event = _events.record(pid, _events.Outcome.model_validate(payload))
+            return {"ok": True, "event": event, "package": _history.get_package(pid)}
+        if status is not None and (not isinstance(status, str) or status not in _OUTCOME_STATUSES):
+            return JSONResponse({"error": "無效的投遞結果狀態"}, status_code=400)
+        note = payload.get("note")
+        _history.set_outcome(pid, status, note if isinstance(note, str) else None, update_note="note" in payload)
+        return {"ok": True}
+    except _events.EventError as exc:
+        return JSONResponse({"error": exc.message}, status_code=exc.code)
+    except (ValidationError, ValueError):
+        return JSONResponse({"error": "請確認憑證、本人確認、更正原因與包含時區的時間"}, status_code=422)
+    except RuntimeError:
+        return JSONResponse({"error": "查證功能尚未完成資料庫遷移"}, status_code=503)
+
 
 
 @app.delete("/api/history/{pid}")
@@ -1234,3 +1298,45 @@ def logo512():
 @app.get("/icons.svg", include_in_schema=False)
 def icons_svg():
     return _serve_root_static("icons.svg", "image/svg+xml")
+
+
+
+@app.post("/api/job-verifications/query")
+def verification_query(body: _verifications.VerificationQuery):
+    try:
+        return {"jobs": _verifications.query(body.job_urls)}
+    except RuntimeError:
+        return JSONResponse({"error": "查證功能尚未完成資料庫遷移"}, status_code=503)
+
+
+@app.put("/api/job-verifications")
+def verification_save(body: _verifications.VerificationWrite):
+    try:
+        return _verifications.save(body)
+    except RuntimeError:
+        return JSONResponse({"error": "查證功能尚未完成資料庫遷移"}, status_code=503)
+
+
+@app.get("/api/history/{pid}/events")
+def application_events(pid: int, limit: int = Query(50, ge=1, le=100), cursor: int = Query(0, ge=0)):
+    try:
+        return _events.list_events(pid, limit, cursor)
+    except _events.EventError as exc:
+        return JSONResponse({"error": exc.message}, status_code=exc.code)
+    except RuntimeError:
+        return JSONResponse({"error": "查證功能尚未完成資料庫遷移"}, status_code=503)
+
+
+@app.patch("/api/history/{pid}/job-source")
+def package_source(pid: int, payload: dict = Body(...)):
+    try:
+        if "job_url" not in payload:
+            raise ValueError()
+        value = payload["job_url"]
+        return _history.set_job_source(pid, _verifications.safe_url(value) if value is not None else None)
+    except _events.EventError as exc:
+        return JSONResponse({"error": exc.message}, status_code=exc.code)
+    except ValueError:
+        return JSONResponse({"error": "請提供有效 HTTPS 職缺來源"}, status_code=422)
+    except RuntimeError:
+        return JSONResponse({"error": "查證功能尚未完成資料庫遷移"}, status_code=503)

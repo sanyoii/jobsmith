@@ -1,5 +1,6 @@
 import { useState } from "react"
-import type { JobMatch } from "../../types"
+import { JobVerificationPanel, RemoteEligibilityPanel } from "./JobVerificationPanel"
+import type { JobMatch, JobPosting } from "../../types"
 import { SRC_LABEL, WORK_MODE_LABEL } from "../../lib/sources"
 import { Card } from "../../ui/Card"
 import { Button } from "../../ui/Button"
@@ -47,6 +48,10 @@ function JobCard({ m, onPick, pending }: { m: JobMatch; onPick: (m: JobMatch) =>
             {m.matched.map((t, k) => <Badge key={k} tone="emerald">{t}</Badge>)}
           </div>
         )}
+        <RemoteEligibilityPanel assessment={m.job.remote_eligibility} />
+        <details className="mt-2 text-sm"><summary>其他條件與手動紀錄（選填）</summary>
+          <JobVerificationPanel key={m.job.url} jobUrl={m.job.url} />
+        </details>
       </div>
       <div className="shrink-0 flex flex-row sm:flex-col gap-2">
         <Button size="sm" icon={Sparkles} loading={pending} onClick={() => onPick(m)} className="whitespace-nowrap">產生投遞包</Button>
@@ -60,7 +65,7 @@ function JobCard({ m, onPick, pending }: { m: JobMatch; onPick: (m: JobMatch) =>
 }
 
 // 可分頁的職缺清單；onPick 可為 async（抓完整 JD 時該卡按鈕顯示載入中）。
-export function JobList({ matches, onPick }:
+function PagedJobList({ matches, onPick }:
   { matches: JobMatch[]; onPick: (m: JobMatch) => void | Promise<void> }) {
   const [page, setPage] = useState(1)
   const [pendingUrl, setPendingUrl] = useState("")
@@ -103,4 +108,27 @@ export function JobList({ matches, onPick }:
       )}
     </>
   )
+}
+
+
+export function JobList({ matches, onPick }: { matches: JobMatch[]; onPick: (m: JobMatch) => void | Promise<void> }) {
+  if (!matches.some((m) => m.job.remote_eligibility)) return <PagedJobList matches={matches} onPick={onPick} />
+  const confirmed = matches.filter((m) => m.job.remote_eligibility?.status === "pass")
+  const pending = matches.filter((m) => !m.job.remote_eligibility || m.job.remote_eligibility.status === "unknown")
+  return <>
+    {confirmed.length > 0 && <><h3 className="font-semibold mb-3">全遠端、接受台灣工作地區（{confirmed.length}）</h3><PagedJobList matches={confirmed} onPick={onPick} /></>}
+    {pending.length > 0 && <div className="mt-5"><h3 className="font-semibold mb-2">台灣全遠端條件待確認（{pending.length}）</h3>
+      <p className="text-sm text-slate-500 mb-3">資訊不足或尚未完成初查的職缺保留在這裡。</p><PagedJobList matches={pending} onPick={onPick} /></div>}
+  </>
+}
+
+export function ExcludedRemoteJobs({ jobs }: { jobs: JobPosting[] }) {
+  if (!jobs.length) return null
+  return <details className="mt-5 rounded-xl border border-slate-200 p-4">
+    <summary className="font-medium">已排除：不符合台灣全遠端條件（{jobs.length}）</summary>
+    <div className="space-y-3 mt-3">{jobs.map((job) => <article key={job.url} className="border-t pt-3">
+      <a href={job.url} target="_blank" rel="noreferrer noopener" className="underline font-medium">{job.title} · {job.company}</a>
+      <RemoteEligibilityPanel assessment={job.remote_eligibility} />
+    </article>)}</div>
+  </details>
 }

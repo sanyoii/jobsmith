@@ -10,6 +10,8 @@ STRUCTURE_SYSTEM = (
     "姓名(name)、一句話定位(summary)、技能清單(skills)、經歷條列(experiences)、"
     "學歷(education)、總年資(years_experience)、期望職務(preferred_roles)。"
     "raw_text 欄位請直接填入空字串即可（系統會自行補上原文，不需你回填）。"
+    "以履歷職稱及實際工作為定位；QA 或 Technical Support 的 Python／API 測試、除錯不等於後端開發。"
+    "期望職務未明示時留空，不要把技能推成轉職意願；明示 QA Manager 目標必須保留管理層級，不降成 QA Engineer。"
     "找不到的欄位留空或 null，不要捏造。"
 )
 
@@ -106,9 +108,36 @@ def _infer_name(lines: list[str]) -> str:
     return max(candidates, key=lambda item: item[0])[1]
 
 
+QA_MANAGEMENT_RE = re.compile(
+    r"\b(?:qa|quality assurance|test|testing)\s+manager\b|QA\s*(?:經理|主管)|測試(?:經理|主管)|品保(?:經理|主管)|品質保證(?:經理|主管)",
+    re.IGNORECASE,
+)
+
+QA_MANAGEMENT_TARGET_RE = re.compile(
+    r"(?:target role\s*:\s*|seeking\s+(?:a\s+)?)(?:qa|quality assurance|test|testing)\s+manager\b",
+    re.IGNORECASE,
+)
+
+
 def _infer_roles(resume_text: str, skills: list[str]) -> list[str]:
     blob = " ".join([resume_text or "", " ".join(skills)]).lower()
-    roles = [role for role, markers in _ROLE_RULES if any(marker in blob for marker in markers)]
+    headline = " ".join(_resume_lines(resume_text)[:4]).lower()
+    # Explicit management target / primary title precedes the broader QA family.
+    if QA_MANAGEMENT_TARGET_RE.search(resume_text) or QA_MANAGEMENT_RE.search(headline):
+        return ["QA 經理"]
+    # Primary resume title takes precedence over tools and older unrelated roles.
+    if re.search(r"\b(?:technical|application|customer) support engineer\b|技術支援工程師|技術支持工程師", headline):
+        return ["技術支援工程師"]
+    if re.search(r"\b(?:qa|quality assurance|sdet|(?:automation |software )?test engineer)\b|測試工程師|品保工程師", headline):
+        roles = ["QA 工程師", "測試工程師"]
+        if re.search(r"\b(?:automation|selenium|playwright|robot framework)\b|自動化測試", blob):
+            roles.append("自動化測試工程師")
+        return roles
+    roles = [role for role, markers in _ROLE_RULES if any(
+        re.search(r"(?<!\w)" + re.escape(marker) + r"(?!\w)", blob)
+        if marker.isascii() else marker in blob
+        for marker in markers
+    )]
     out: list[str] = []
     for role in roles:
         if role not in out:
@@ -160,7 +189,18 @@ def _repair_profile(profile: Profile, resume_text: str) -> Profile:
         profile.experiences = fallback.experiences
     if not profile.education:
         profile.education = fallback.education
-    if not profile.preferred_roles:
+    # Explicit support target in the resume outranks model-invented career preferences.
+    explicit_support = re.search(
+        r"seeking\s+(?:a\s+)?(?:fully\s+remote\s+)?technical\s+support\s+engineer",
+        resume_text, re.IGNORECASE,
+    )
+    if fallback.preferred_roles == ["QA 經理"] and QA_MANAGEMENT_TARGET_RE.search(resume_text):
+        profile.preferred_roles = fallback.preferred_roles
+        profile.summary = fallback.summary
+    elif fallback.preferred_roles == ["技術支援工程師"] and explicit_support:
+        profile.preferred_roles = fallback.preferred_roles
+        profile.summary = fallback.summary
+    elif not profile.preferred_roles:
         profile.preferred_roles = fallback.preferred_roles
     if not profile.raw_text:
         profile.raw_text = resume_text

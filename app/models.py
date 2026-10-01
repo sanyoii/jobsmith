@@ -192,10 +192,26 @@ class ResumeAssessment(BaseModel):
     rewrite_examples: list[ResumeRewrite] = Field(default_factory=list, description="改寫範例")
 
 
+class RemoteCondition(BaseModel):
+    value: Literal["pass", "fail", "unknown"] = "unknown"
+    reason: str = ""
+    evidence: list[str] = Field(default_factory=list)
+
+
+class RemoteEligibility(BaseModel):
+    status: Literal["pass", "fail", "unknown"] = "unknown"
+    remote: RemoteCondition = Field(default_factory=RemoteCondition)
+    taiwan: RemoteCondition = Field(default_factory=RemoteCondition)
+    source_url: str = ""
+    checked_at: str = ""
+    method: Literal["page", "unavailable", "not_checked"] = "not_checked"
+
+
 class JobPosting(BaseModel):
     """正規化後的單一職缺。"""
     source: str = Field(
-        description="104 | cake | yourator | linkedin | web3career | cryptojobslist | dejob | jobfrog | url")
+        description="104 | cake | yourator | linkedin | web3career | cryptojobslist | dejob | jobfrog | "
+                     "cryptocurrencyjobs | defijobs | url")
     title: str
     company: str
     location: str | None = None
@@ -205,6 +221,7 @@ class JobPosting(BaseModel):
     requirements: list[str] = Field(default_factory=list)
     raw_text: str = Field(default="", description="原始職缺全文，供後續解析")
     work_mode: str | None = Field(default=None, description="onsite | hybrid | remote；來源沒揭露時為 None")
+    remote_eligibility: RemoteEligibility | None = None
 
 
 class JobMatch(BaseModel):

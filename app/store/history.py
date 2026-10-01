@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timezone
 
 from app.store import db
+from app.store import application_events as events
 
 _PKG_KEYS = ("parsed_job", "match_report", "company_brief",
              "tailored_resume", "cover_letter", "interview_kit", "critique")
@@ -62,13 +63,15 @@ def save_package(final_state: dict, thread_id: str | None = None) -> int:
 
 
 def create_running_package(thread_id: str, jd_text: str, title: str,
-                           profile: dict | None = None) -> int:
+                           profile: dict | None = None, job_url: str | None = None) -> int:
     """背景產生投遞包：先建一筆『進行中(running)』佔位，跑完再用 update_package_result 補成品。
 
     使用者一按「產生投遞包」就有紀錄、可離開頁面；pipeline 在伺服器背景續跑。
     """
     conn = db.get_conn()
-    with db.LOCK:
+    if job_url:
+        db.require_evidence_schema(conn)
+    with db.LOCK, conn:
         cur = conn.execute(
             "INSERT INTO packages(created_at,job_title,company,match_score,jd_text,"
             "profile_json,package_json,approved,thread_id,status) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -76,8 +79,12 @@ def create_running_package(thread_id: str, jd_text: str, title: str,
              0, jd_text or "",
              json.dumps(profile, ensure_ascii=False) if profile else None,
              None, 0, thread_id, "running"))
+        pid = int(cur.lastrowid)
+        if job_url:
+            db.require_evidence_schema(conn)
+            conn.execute("UPDATE packages SET job_url=? WHERE id=?", (job_url, pid))
         conn.commit()
-        return int(cur.lastrowid)
+        return pid
 
 
 def update_package_result(pid: int, final_state: dict) -> None:
@@ -131,12 +138,13 @@ def list_packages() -> list[dict]:
     # 與終局自動存檔同時發生時可能拋 ProgrammingError。
     with db.LOCK:
         rows = conn.execute(
-            "SELECT id,created_at,job_title,company,match_score,approved,status,thread_id,package_json,"
-            "outcome_status,outcome_note "
-            "FROM packages ORDER BY id DESC").fetchall()
+            "SELECT * FROM packages ORDER BY id DESC").fetchall()
+        decorated = [events.decorate(conn, dict(r)) for r in rows]
     out = []
-    for r in rows:
+    for r in decorated:
         d = dict(r)
+        d.pop('profile_json', None)
+        d.pop('jd_text', None)
         package = _load_package(d.pop("package_json", None))
         d["has_artifacts"] = 1 if _has_artifacts(package) else 0
         # 舊版可能已有 status='done' 但 package_json 沒有任何成品文件；列表不要顯示成待審。
@@ -150,6 +158,8 @@ def get_package(pid: int) -> dict | None:
     conn = db.get_conn()
     with db.LOCK:
         r = conn.execute("SELECT * FROM packages WHERE id=?", (pid,)).fetchone()
+        if r:
+            r = events.decorate(conn, dict(r))
     if not r:
         return None
     d = dict(r)
@@ -169,18 +179,7 @@ def set_outcome(pid: int, status: str | None, note: str | None = None,
 
     note 僅在 update_note=True 時寫入，避免只改狀態的請求把既有備註洗掉。
     """
-    conn = db.get_conn()
-    now = datetime.now(timezone.utc).isoformat()
-    with db.LOCK:
-        if update_note:
-            conn.execute(
-                "UPDATE packages SET outcome_status=?, outcome_note=?, outcome_updated_at=? WHERE id=?",
-                (status, note, now, pid))
-        else:
-            conn.execute(
-                "UPDATE packages SET outcome_status=?, outcome_updated_at=? WHERE id=?",
-                (status, now, pid))
-        conn.commit()
+    events.legacy(pid, status, note, update_note=update_note)
 
 
 def set_approved(pid: int, approved: bool) -> None:
@@ -194,13 +193,27 @@ def set_approved(pid: int, approved: bool) -> None:
 
 def delete_package(pid: int) -> None:
     conn = db.get_conn()
-    with db.LOCK:
+    with db.LOCK, conn:
+        if db.evidence_schema_ready(conn):
+            conn.execute("DELETE FROM application_events WHERE package_id=?", (pid,))
         conn.execute("DELETE FROM packages WHERE id=?", (pid,))
         conn.commit()
 
 
 def delete_all_packages() -> None:
     conn = db.get_conn()
-    with db.LOCK:
+    with db.LOCK, conn:
+        if db.evidence_schema_ready(conn):
+            conn.execute("DELETE FROM application_events")
         conn.execute("DELETE FROM packages")
         conn.commit()
+
+
+def set_job_source(pid: int, job_url: str | None):
+    conn = db.get_conn()
+    db.require_evidence_schema(conn)
+    with db.LOCK, conn:
+        if not conn.execute("SELECT id FROM packages WHERE id=?", (pid,)).fetchone():
+            raise events.EventError(404, "找不到該投遞包")
+        conn.execute("UPDATE packages SET job_url=? WHERE id=?", (job_url, pid))
+    return get_package(pid)

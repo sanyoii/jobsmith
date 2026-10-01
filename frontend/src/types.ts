@@ -55,10 +55,17 @@ export interface PipelineState {
 }
 
 // ---- 職缺探索（對應 app/models.py 的 JobPosting / JobMatch）----
+export interface RemoteCondition {
+  value: "pass" | "fail" | "unknown"; reason: string; evidence: string[];
+}
+export interface RemoteEligibility {
+  status: "pass" | "fail" | "unknown"; remote: RemoteCondition; taiwan: RemoteCondition;
+  source_url: string; checked_at: string; method: "page" | "unavailable" | "not_checked";
+}
 export interface JobPosting {
   source: string; title: string; company: string; location?: string | null;
   salary?: string | null; url: string; snippet?: string | null; requirements: string[];
-  work_mode?: string | null;
+  work_mode?: string | null; remote_eligibility?: RemoteEligibility | null;
 }
 export interface JobMatch {
   job: JobPosting; fit_score: number; matched: string[]; gaps: string[]; reason: string;
@@ -85,7 +92,7 @@ export interface EditableProfile {
 }
 
 // 從職缺列表「產生投遞包」時，帶 JD + 使用者真實履歷進 pipeline（profile 缺省則後端用 demo）
-export interface Seed { jd: string; profile?: UserProfile | null; nonce: number }
+export interface Seed { jd: string; profile?: UserProfile | null; nonce: number; jobUrl?: string | null }
 
 // 逐節點 agent telemetry（後端 telemetry SSE 事件）
 export interface TelemetryEntry {
@@ -120,12 +127,14 @@ export type JobsAutoEvent =
   | { type: "start"; task_id?: string }
   | { type: "progress"; step: string; message: string }
   | { type: "profile"; data: UserProfile }
-  | { type: "queries"; queries: string[]; custom: string[] }
-  | { type: "source"; source: string; count: number; blocked: boolean }
+  | { type: "queries"; queries: string[]; custom: string[]; by_source?: Record<string, string[]> }
+  | { type: "source"; source: string; count: number; blocked: boolean; status?: string; raw_count?: number; queries?: string[] }
   | { type: "all_blocked"; message: string }
+  | { type: "search_empty"; reason: string; message: string }
   | { type: "rank_start"; total: number; fallback: boolean }
   | { type: "ranked_batch"; data: JobMatch[] }
   | { type: "company_jobs"; data: JobMatch[] }
+  | { type: "remote_excluded"; jobs: JobPosting[] }
   | { type: "linkedin"; url: string }
   | { type: "stopped"; message: string }
   | { type: "error"; message: string }

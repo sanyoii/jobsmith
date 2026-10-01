@@ -198,3 +198,50 @@ def test_fallback_resume_assessment_uses_resume_specific_evidence():
     assert "Backend Engineer" in combined
     assert len(assessment.issues) >= 3
     assert len(assessment.rewrite_examples) >= 2
+
+
+def test_qa_resume_fallback_preserves_primary_role_with_python_api_and_old_firmware():
+    profile = mod._fallback_profile_from_text(
+        "Candidate\nSenior QA Engineer\n"
+        "Maintained Python automation and REST API validation with Selenium.\n"
+        "Earlier experience: Firmware Engineer in C."
+    )
+    assert profile.preferred_roles == ["QA 工程師", "測試工程師", "自動化測試工程師"]
+    assert "QA" in profile.summary
+
+
+def test_inferred_ai_role_requires_word_boundary():
+    roles = mod._infer_roles("Candidate\nMaintained customer systems and trained colleagues.", [])
+    assert "AI 工程師" not in roles
+    assert "AI 工程師" in mod._infer_roles("Candidate\nAI Engineer\nLLM applications", [])
+
+
+def test_support_resume_fallback_uses_headline_instead_of_python_api_and_old_qa():
+    profile = mod._fallback_profile_from_text(
+        "Candidate\nTechnical Support Engineer · Seeking Fully Remote\n"
+        "API troubleshooting, SQL diagnosis, Python Selenium validation.\n"
+        "Earlier: Senior QA Engineer; Firmware Engineer."
+    )
+    assert profile.preferred_roles == ["技術支援工程師"]
+
+
+def test_support_explicit_resume_target_repairs_wrong_model_role(monkeypatch):
+    text = "Candidate\nTechnical Support Engineer\nSeeking a fully remote Technical Support Engineer (L3) role. API Python."
+    monkeypatch.setattr(mod, "get_llm", lambda *a, **kw: FakeLLM(
+        Profile(name="Candidate", summary="Backend Engineer", preferred_roles=["後端工程師"], raw_text="")))
+    profile = mod.structure_profile(text)
+    assert profile.preferred_roles == ["技術支援工程師"]
+    assert profile.summary.startswith("技術支援工程師")
+
+
+def test_qa_manager_target_precedes_engineer_and_automation_tools():
+    text = "Candidate\n1\nCandidate\nQA Leadership\nTarget Role: QA Manager\nSeeking a QA Manager role.\nPrevious Senior QA Engineer; Python Selenium automation."
+    profile = mod._fallback_profile_from_text(text)
+    assert profile.preferred_roles == ["QA 經理"]
+
+
+def test_explicit_qa_manager_target_repairs_model_engineer_roles(monkeypatch):
+    text = "Candidate\nTarget Role: QA Manager\nQA Engineer experience; Python API testing."
+    monkeypatch.setattr(mod, "get_llm", lambda *a, **kw: FakeLLM(
+        Profile(name="Candidate", summary="QA Engineer", preferred_roles=["QA 工程師", "自動化測試工程師"], raw_text="")))
+    assert mod.structure_profile(text).preferred_roles == ["QA 經理"]

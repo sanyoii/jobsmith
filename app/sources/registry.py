@@ -8,7 +8,9 @@ from app.models import SearchResult
 from app.sources import (
     source_104,
     source_cake,
+    source_cryptocurrencyjobs,
     source_cryptojobslist,
+    source_defijobs,
     source_dejob,
     source_jobfrog,
     source_linkedin,
@@ -26,13 +28,25 @@ SEARCHABLE = {
     source_cryptojobslist.NAME: source_cryptojobslist.search,
     source_dejob.NAME: source_dejob.search,
     source_jobfrog.NAME: source_jobfrog.search,
+    source_cryptocurrencyjobs.NAME: source_cryptocurrencyjobs.search,
+    source_defijobs.NAME: source_defijobs.search,
 }
 
 # 尚未穩定、暫不啟用的來源（UI 標「即將支援」，避免永遠失敗的來源傷可信度）。
 COMING_SOON: dict[str, str] = {}
 
 
-def search_all(keywords: str, sources: list[str] | None = None, limit: int = 15,
+def parse_sources(raw: str) -> list[str]:
+    """前端傳來的逗號字串 → 有效來源 key（保序、去重、丟未知值）。空/無效 → []（= 全部來源）。"""
+    out: list[str] = []
+    for part in (raw or "").split(","):
+        k = part.strip()
+        if k in SEARCHABLE and k not in out:
+            out.append(k)
+    return out
+
+
+def search_all(keywords: str | list[str], sources: list[str] | None = None, limit: int = 15,
                pages: int = 1, area: list[str] | None = None) -> list[SearchResult]:
     """對選定來源『並行』各跑一次搜尋；單一來源失敗只回該來源 blocked，不影響其他。
 
@@ -40,6 +54,8 @@ def search_all(keywords: str, sources: list[str] | None = None, limit: int = 15,
     area：地區代碼清單，傳給各來源（目前 104 於來源端篩選，其餘來源忽略、由上層結果端過濾）。
     結果固定依 names 的順序回傳（與並行無關），方便上層彙整與測試。
     """
+    if isinstance(keywords, list) and sources != ["defijobs"]:
+        raise ValueError("Batch phrases are only supported by defijobs")
     names = [n for n in (sources or list(SEARCHABLE)) if n in SEARCHABLE]
     if not names:
         return []

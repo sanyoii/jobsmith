@@ -143,3 +143,81 @@ def test_rank_jobs_explicit_top_k(monkeypatch):
     monkeypatch.setattr(mod, "get_llm", lambda tier, **k: _ranker(20))
     out = mod.rank_jobs(Profile(name="王", summary="後端", raw_text="…"), _jobs(20), top_k=5)
     assert len(out) == 5
+
+
+def test_qa_fallback_does_not_turn_python_and_api_testing_into_backend():
+    profile = Profile(name="QA", summary="Senior QA Engineer", skills=["Python", "Selenium", "API"],
+                      preferred_roles=["QA 工程師", "測試工程師", "自動化測試工程師"], raw_text="r")
+    assert mod._fallback_queries(profile) == profile.preferred_roles
+
+
+def test_qa_queries_reject_unrelated_llm_roles(monkeypatch):
+    monkeypatch.setattr(mod, "get_llm", lambda tier, **kw: FakeLLM(
+        mod.SearchQueries(queries=["AI 工程師", "後端工程師", "Python 後端"])))
+    profile = Profile(name="QA", summary="Senior QA Engineer", skills=["Python", "Selenium"], raw_text="r")
+    assert mod.derive_queries(profile) == ["QA 工程師", "測試工程師", "自動化測試工程師"]
+
+
+def test_qa_queries_keep_relevant_llm_terms_without_backend(monkeypatch):
+    monkeypatch.setattr(mod, "get_llm", lambda tier, **kw: FakeLLM(
+        mod.SearchQueries(queries=["QA Engineer", "Python 後端", "Manual Test"])))
+    profile = Profile(name="QA", summary="Senior QA Engineer", raw_text="r")
+    assert mod.derive_queries(profile) == ["QA Engineer", "Manual Test"]
+
+
+def test_explicit_mixed_targets_are_not_forced_to_qa(monkeypatch):
+    monkeypatch.setattr(mod, "get_llm", lambda tier, **kw: FakeLLM(
+        mod.SearchQueries(queries=["QA", "後端工程師"])))
+    profile = Profile(name="QA", summary="Senior QA Engineer",
+                      preferred_roles=["QA 工程師", "後端工程師"], raw_text="r")
+    assert mod.derive_queries(profile) == ["QA", "後端工程師"]
+
+
+def test_backend_profile_with_testing_skill_is_not_forced_to_qa(monkeypatch):
+    monkeypatch.setattr(mod, "get_llm", lambda tier, **kw: FakeLLM(
+        mod.SearchQueries(queries=["後端工程師", "Python 後端"])))
+    profile = Profile(name="Backend", summary="Backend engineer with API testing experience",
+                      skills=["Python", "pytest"], raw_text="r")
+    assert mod.derive_queries(profile) == ["後端工程師", "Python 後端"]
+
+
+def test_support_fallback_does_not_turn_troubleshooting_tools_into_backend():
+    profile = Profile(name="Support", summary="Technical Support Engineer", skills=["Python", "API", "SQL"], raw_text="r")
+    assert mod._fallback_queries(profile) == ["技術支援工程師"]
+
+
+def test_support_queries_reject_wrong_llm_role(monkeypatch):
+    monkeypatch.setattr(mod, "get_llm", lambda *a, **kw: FakeLLM(
+        mod.SearchQueries(queries=["後端工程師", "Python 後端", "QA 工程師"])))
+    profile = Profile(name="Support", summary="Technical Support Engineer", preferred_roles=["技術支援工程師"], raw_text="r")
+    assert mod.derive_queries(profile) == ["技術支援工程師"]
+
+
+def test_support_queries_keep_relevant_terms_and_explicit_mixed_targets(monkeypatch):
+    monkeypatch.setattr(mod, "get_llm", lambda *a, **kw: FakeLLM(
+        mod.SearchQueries(queries=["Technical Support Engineer", "後端工程師"])))
+    profile = Profile(name="Support", summary="Technical Support Engineer", raw_text="r")
+    assert mod.derive_queries(profile) == ["Technical Support Engineer"]
+    profile.preferred_roles = ["Technical Support Engineer", "Backend Engineer"]
+    assert mod.derive_queries(profile) == ["Technical Support Engineer", "後端工程師"]
+
+
+def test_qa_manager_fallback_preserves_management_level():
+    profile = Profile(name="Manager", summary="QA Manager", skills=["Python", "Selenium"], raw_text="r")
+    assert mod._fallback_queries(profile) == ["QA 經理"]
+
+
+def test_qa_manager_rejects_model_engineer_search_terms(monkeypatch):
+    monkeypatch.setattr(mod, "get_llm", lambda *a, **kw: FakeLLM(
+        mod.SearchQueries(queries=["QA 工程師", "測試工程師", "自動化測試工程師"])))
+    profile = Profile(name="Manager", summary="QA 經理", preferred_roles=["QA 經理"], raw_text="r")
+    assert mod.derive_queries(profile) == ["QA 經理"]
+
+
+def test_manager_keeps_manager_terms_and_explicit_mixed_engineer_targets(monkeypatch):
+    monkeypatch.setattr(mod, "get_llm", lambda *a, **kw: FakeLLM(
+        mod.SearchQueries(queries=["QA Manager", "QA Engineer", "Test Manager"])))
+    profile = Profile(name="Manager", summary="QA Manager", preferred_roles=["QA Manager"], raw_text="r")
+    assert mod.derive_queries(profile) == ["QA Manager", "Test Manager"]
+    profile.preferred_roles = ["QA Manager", "QA Engineer"]
+    assert mod.derive_queries(profile) == ["QA Manager", "QA Engineer"]

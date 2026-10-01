@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 
 _ROOT = Path(__file__).parent.parent.parent
-LOCK = threading.Lock()
+LOCK = threading.RLock()
 _conn: sqlite3.Connection | None = None
 
 
@@ -20,6 +20,7 @@ def _db_path() -> str:
 
 
 def _init(conn: sqlite3.Connection) -> None:
+    fresh = not conn.execute("SELECT 1 FROM sqlite_master WHERE name='packages'").fetchone()
     conn.execute(
         "CREATE TABLE IF NOT EXISTS packages("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT, job_title TEXT, company TEXT, "
@@ -52,6 +53,8 @@ def _init(conn: sqlite3.Connection) -> None:
         "candidate_name TEXT, overall_score INTEGER, assessment_mode TEXT, fallback_reason TEXT, "
         "profile_json TEXT, assessment_json TEXT)")
     conn.commit()
+    if fresh:
+        migrate_evidence(conn)
 
 
 def get_conn() -> sqlite3.Connection:
@@ -65,3 +68,31 @@ def get_conn() -> sqlite3.Connection:
 
 def init_db() -> None:
     get_conn()
+
+
+
+def evidence_schema_ready(conn: sqlite3.Connection) -> bool:
+    with LOCK:
+        return "job_url" in {r[1] for r in conn.execute("PRAGMA table_info(packages)")} and all(
+            conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()
+            for name in ("job_verifications", "application_events"))
+
+
+def require_evidence_schema(conn: sqlite3.Connection) -> None:
+    if not evidence_schema_ready(conn):
+        raise RuntimeError("查證功能尚未完成資料庫遷移；請先備份並取得遷移授權")
+
+
+def migrate_evidence(conn: sqlite3.Connection) -> None:
+    """Explicit opt-in for existing DBs. New empty DBs initialize this schema."""
+    with LOCK, conn:
+        if "job_url" not in {r[1] for r in conn.execute("PRAGMA table_info(packages)")}:
+            conn.execute("ALTER TABLE packages ADD COLUMN job_url TEXT")
+        conn.execute("CREATE TABLE IF NOT EXISTS job_verifications("
+                     "job_key TEXT NOT NULL, criterion TEXT NOT NULL, data TEXT NOT NULL,"
+                     "PRIMARY KEY(job_key,criterion))")
+        conn.execute("CREATE TABLE IF NOT EXISTS application_events("
+                     "sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,"
+                     "package_id INTEGER NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,"
+                     "request TEXT NOT NULL, data TEXT NOT NULL)")
+        conn.execute("CREATE INDEX IF NOT EXISTS application_events_package ON application_events(package_id,sequence)")

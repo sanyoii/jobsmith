@@ -32,7 +32,7 @@ def test_extracts_104_via_api(monkeypatch):
             "other": "具 LLM 專案經驗者佳。",
         },
     }}
-    monkeypatch.setattr(jd_fetch, "http_get", lambda url, referer=None: _FakeResp(payload))
+    monkeypatch.setattr(jd_fetch, "http_get", lambda url, referer=None, timeout=20: _FakeResp(payload))
     res = jd_fetch.fetch_jd("https://www.104.com.tw/job/abcXYZ?jobsource=x")
     assert res.source == "104"
     assert res.title == "資深 AI 工程師"
@@ -88,3 +88,36 @@ def test_blocks_cloud_metadata_ssrf():
     # link-local 169.254.169.254（雲端 metadata）必須被擋
     with pytest.raises(jd_fetch.JDFetchError):
         jd_fetch.fetch_jd("http://169.254.169.254/latest/meta-data/")
+
+
+def test_ashby_redirect_to_private_host_is_blocked_before_second_request(monkeypatch):
+    calls = []
+    class Response:
+        is_redirect = True
+        headers = {"Location": "http://127.0.0.1/private"}
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    def fetch(url, **kw):
+        calls.append(url)
+        return Response()
+    # Public initial host is controlled; real private-address guard remains active on redirect.
+    original = jd_fetch._guard_host
+    monkeypatch.setattr(jd_fetch, "_guard_host", lambda url: None if "ashbyhq.com" in url else original(url))
+    monkeypatch.setattr(jd_fetch.requests, "get", fetch)
+    with pytest.raises(jd_fetch.JDFetchError):
+        jd_fetch._ashby_html("https://jobs.ashbyhq.com/test", 8)
+    assert len(calls) == 1
+
+
+def test_ashby_response_size_limit(monkeypatch):
+    class Response:
+        is_redirect = False
+        encoding = "utf-8"
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def raise_for_status(self): pass
+        def iter_content(self, size): yield b"x" * 11
+    monkeypatch.setattr(jd_fetch, "_guard_host", lambda url: None)
+    monkeypatch.setattr(jd_fetch, "_MAX_BYTES", 10)
+    monkeypatch.setattr(jd_fetch.requests, "get", lambda *a, **kw: Response())
+    with pytest.raises(jd_fetch.JDFetchError): jd_fetch._ashby_html("https://jobs.ashbyhq.com/test", 8)

@@ -1,0 +1,343 @@
+{
+  "at": "2026-10-01T11:12:32.508338+00:00",
+  "terms": [
+    "QA 工程師",
+    "QA Engineer"
+  ],
+  "limit": 15,
+  "pages": 1,
+  "requests": 19,
+  "sources": [
+    {
+      "source": "104",
+      "requests": 2,
+      "seconds": 3.01,
+      "chinese": {
+        "blocked": false,
+        "error": null,
+        "unique": 15,
+        "software_qa": 4,
+        "role_unknown": 11,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "english": {
+        "blocked": false,
+        "error": null,
+        "unique": 15,
+        "software_qa": 12,
+        "role_unknown": 2,
+        "other_role": 1,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "union": 27,
+      "english_only": 12,
+      "english_only_software_qa": 11,
+      "comparable": true
+    },
+    {
+      "source": "yourator",
+      "requests": 2,
+      "seconds": 1.18,
+      "chinese": {
+        "blocked": false,
+        "error": null,
+        "unique": 15,
+        "software_qa": 1,
+        "role_unknown": 10,
+        "other_role": 4,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "english": {
+        "blocked": false,
+        "error": null,
+        "unique": 15,
+        "software_qa": 0,
+        "role_unknown": 9,
+        "other_role": 6,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "union": 25,
+      "english_only": 10,
+      "english_only_software_qa": 0,
+      "comparable": true,
+      "comparison_note": "Low QA relevance; keyword semantics remain unverified. Do not treat raw count as relevant coverage."
+    },
+    {
+      "source": "linkedin",
+      "requests": 2,
+      "seconds": 1.69,
+      "chinese": {
+        "blocked": false,
+        "error": null,
+        "unique": 10,
+        "software_qa": 8,
+        "role_unknown": 2,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "english": {
+        "blocked": false,
+        "error": null,
+        "unique": 10,
+        "software_qa": 8,
+        "role_unknown": 2,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "union": 12,
+      "english_only": 2,
+      "english_only_software_qa": 2,
+      "comparable": true
+    },
+    {
+      "source": "cake",
+      "requests": 2,
+      "seconds": 0.98,
+      "chinese": {
+        "blocked": true,
+        "error": "HTTP 403",
+        "unique": 0,
+        "software_qa": 0,
+        "role_unknown": 0,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "english": {
+        "blocked": true,
+        "error": "HTTP 403",
+        "unique": 0,
+        "software_qa": 0,
+        "role_unknown": 0,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "union": 0,
+      "english_only": 0,
+      "english_only_software_qa": 0,
+      "comparable": false
+    },
+    {
+      "source": "web3career",
+      "requests": 2,
+      "seconds": 3.78,
+      "chinese": {
+        "blocked": false,
+        "error": null,
+        "unique": 15,
+        "software_qa": 0,
+        "role_unknown": 13,
+        "other_role": 2,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "english": {
+        "blocked": false,
+        "error": null,
+        "unique": 15,
+        "software_qa": 0,
+        "role_unknown": 13,
+        "other_role": 2,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "union": 15,
+      "english_only": 0,
+      "english_only_software_qa": 0,
+      "comparable": false,
+      "comparison_note": "Initial ?search= route returned the same unrelated list. Initial language comparison invalid; native QA category was repaired and separately checked."
+    },
+    {
+      "source": "cryptojobslist",
+      "requests": 2,
+      "seconds": 40.98,
+      "chinese": {
+        "blocked": true,
+        "error": "HTTPSConnectionPool(host='cryptojobslist.com', port=443): Read timed out. (read timeout=20)",
+        "unique": 0,
+        "software_qa": 0,
+        "role_unknown": 0,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "english": {
+        "blocked": true,
+        "error": "HTTPSConnectionPool(host='cryptojobslist.com', port=443): Read timed out. (read timeout=20)",
+        "unique": 0,
+        "software_qa": 0,
+        "role_unknown": 0,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "union": 0,
+      "english_only": 0,
+      "english_only_software_qa": 0,
+      "comparable": false
+    },
+    {
+      "source": "dejob",
+      "requests": 2,
+      "seconds": 1.23,
+      "chinese": {
+        "blocked": true,
+        "error": "解析不到職缺",
+        "unique": 0,
+        "software_qa": 0,
+        "role_unknown": 0,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "english": {
+        "blocked": false,
+        "error": null,
+        "unique": 13,
+        "software_qa": 12,
+        "role_unknown": 1,
+        "other_role": 0,
+        "remote_or_unknown": 7,
+        "remote_software_qa": 7
+      },
+      "union": 13,
+      "english_only": 13,
+      "english_only_software_qa": 12,
+      "comparable": false
+    },
+    {
+      "source": "jobfrog",
+      "requests": 2,
+      "seconds": 1.26,
+      "chinese": {
+        "blocked": true,
+        "error": "HTTP 400",
+        "unique": 0,
+        "software_qa": 0,
+        "role_unknown": 0,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "english": {
+        "blocked": true,
+        "error": "HTTP 400",
+        "unique": 0,
+        "software_qa": 0,
+        "role_unknown": 0,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "union": 0,
+      "english_only": 0,
+      "english_only_software_qa": 0,
+      "comparable": false
+    },
+    {
+      "source": "cryptocurrencyjobs",
+      "requests": 2,
+      "seconds": 2.3,
+      "chinese": {
+        "blocked": false,
+        "error": null,
+        "unique": 0,
+        "software_qa": 0,
+        "role_unknown": 0,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "english": {
+        "blocked": false,
+        "error": null,
+        "unique": 0,
+        "software_qa": 0,
+        "role_unknown": 0,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "union": 0,
+      "english_only": 0,
+      "english_only_software_qa": 0,
+      "comparable": true
+    },
+    {
+      "source": "defijobs",
+      "requests": 1,
+      "seconds": 0.62,
+      "chinese": {
+        "blocked": false,
+        "error": null,
+        "unique": 0,
+        "software_qa": 0,
+        "role_unknown": 0,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "english": {
+        "blocked": false,
+        "error": null,
+        "unique": 0,
+        "software_qa": 0,
+        "role_unknown": 0,
+        "other_role": 0,
+        "remote_or_unknown": 0,
+        "remote_software_qa": 0
+      },
+      "union": 0,
+      "english_only": 0,
+      "english_only_software_qa": 0,
+      "comparable": true
+    }
+  ],
+  "limits": [
+    "one snapshot, no total-market recall estimate",
+    "no Taiwan eligibility verification",
+    "remote missing metadata is unknown, retained by existing filter",
+    "defijobs comparisons share one fetch and combined cap"
+  ],
+  "adapter_followup": {
+    "source": "web3career",
+    "requests": 1,
+    "category": "https://web3.career/quality-assurance-jobs?page=1",
+    "blocked": false,
+    "error": null,
+    "unique": 15,
+    "software_qa": 12,
+    "titles": [
+      "Intern Automation Delivery QA",
+      "Team Lead — Compliance Monitoring Assurance Testing CMAT",
+      "Senior QA Engineer Rust Java Margin",
+      "QA Engineer Blockchain",
+      "Engineering Manager QA",
+      "Quality Assurance Engineer",
+      "Binance Accelerator Program QA （Content team）",
+      "Binance Accelerator Program QA Content team",
+      "Middle QA Engineer",
+      "Senior Manual QA Engineer B2C",
+      "Internal Controls and Testing Manager Bulgaria",
+      "Senior Web3 SDET",
+      "Senior QA Engineer Platm",
+      "Snr QA Automation Engineer Pro",
+      "QA Engineer Frontend Mobile Java Trading"
+    ]
+  },
+  "total_requests_including_followup": 20,
+  "limitations": [
+    "Single snapshot, one page and at most 15 results per query; not market recall.",
+    "QA classification is a title/context heuristic, not human-confirmed eligibility.",
+    "No resume text or personal data was sent to job sources.",
+    "Remote-or-unknown keeps unspecified work modes; it does not confirm Taiwan remote eligibility."
+  ]
+}

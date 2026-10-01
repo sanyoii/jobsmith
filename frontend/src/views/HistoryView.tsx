@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import type { MouseEvent } from "react"
 import type { UserProfile, PipelineState } from "../types"
 import { Card } from "../ui/Card"
+import { ApplicationEvidencePanel } from "../components/jobs/JobVerificationPanel"
 import { Button } from "../ui/Button"
 import { Badge } from "../ui/Badge"
 import { EmptyState } from "../ui/EmptyState"
@@ -17,12 +18,14 @@ interface PkgSummary {
   id: number; created_at: string; job_title: string; company: string
   match_score: number; approved: number; status?: string; thread_id?: string; has_artifacts?: number
   outcome_status?: string | null; outcome_note?: string | null
+  job_url?: string | null; current_event_id?: string | null; evidence_status?: string
 }
 type PackagePayload = PipelineState & { error?: { message?: string } }
 interface PackageDetail {
   id: number; package: PackagePayload; jd_text?: string; profile?: UserProfile | null
   approved?: number; status?: string; has_artifacts?: number
   outcome_status?: string | null; outcome_note?: string | null
+  job_url?: string | null; current_event_id?: string | null; evidence_status?: string
 }
 
 // 外部投遞結果（Phase 3 outcome 追蹤）：值域與後端 _OUTCOME_STATUSES 一致。
@@ -60,7 +63,7 @@ export function HistoryView(
   { active, onReopen, onInterview, onWatch }:
   {
     active: boolean
-    onReopen: (jd: string, profile?: UserProfile | null) => void
+    onReopen: (jd: string, profile?: UserProfile | null, jobUrl?: string | null) => void
     onInterview: (jd: string, profile?: UserProfile | null) => void
     onWatch?: (threadId: string, packageId: number, title: string) => void
   },
@@ -110,18 +113,6 @@ export function HistoryView(
     refresh()
   }
 
-  // 更新外部投遞結果；note 僅在明確傳入時送出（避免洗掉既有備註）。
-  async function setOutcome(id: number, status: string | null, note?: string) {
-    const body: { status: string | null; note?: string } = { status }
-    if (note !== undefined) body.note = note
-    await fetch(`/api/history/${id}/outcome`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-    })
-    if (detail?.id === id) {
-      setDetail({ ...detail, outcome_status: status, ...(note !== undefined ? { outcome_note: note } : {}) })
-    }
-    refresh()
-  }
 
   function exportBody(pkg: PipelineState) {
     const r = pkg.tailored_resume, c = pkg.cover_letter, k = pkg.interview_kit
@@ -192,30 +183,19 @@ export function HistoryView(
             <Button variant="primary" icon={CircleCheck} onClick={() => approve(detail.id)}>核可</Button>
           )}
           <Button variant="secondary" icon={Workflow}
-            onClick={() => onReopen(detail.jd_text || "", detail.profile ?? null)}>重新開啟到工作台</Button>
+            onClick={() => onReopen(detail.jd_text || "", detail.profile ?? null, detail.job_url)}>重新開啟到工作台</Button>
           <Button variant="secondary" icon={MessagesSquare}
             onClick={() => onInterview(detail.jd_text || "", detail.profile ?? null)}>用這份做面試模擬</Button>
           {hasDocs && <Button variant="secondary" icon={FileDown} onClick={() => downloadDocx(p)}>下載 Word</Button>}
           {hasDocs && <Button variant="secondary" icon={FileDown} onClick={() => downloadPdf(p)}>下載 PDF</Button>}
           {hasDocs && <Button variant="secondary" icon={Printer} onClick={() => window.print()}>列印 / 匯出 PDF</Button>}
         </div>
-        <div className="no-print flex flex-wrap items-center gap-2 mb-4">
-          <span className="text-sm text-slate-600">投遞結果：</span>
-          <select value={detail.outcome_status || ""}
-            onChange={(e) => setOutcome(detail.id, e.target.value || null)}
-            className="text-sm border border-slate-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300">
-            <option value="">未投遞</option>
-            {OUTCOME_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <input type="text" placeholder="備註（拒信理由 / 面試回饋）"
-            defaultValue={detail.outcome_note || ""}
-            onBlur={(e) => {
-              if ((e.target.value || "") !== (detail.outcome_note || "")) {
-                setOutcome(detail.id, detail.outcome_status ?? null, e.target.value)
-              }
-            }}
-            className="text-sm border border-slate-300 rounded-lg px-2 py-1.5 flex-1 min-w-48 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300" />
-        </div>
+        <ApplicationEvidencePanel key={detail.id} pkg={detail} onSaved={async () => {
+          const response = await fetch("/api/history/" + detail.id)
+          if (!response.ok) throw new Error("重新讀取結果失敗")
+          setDetail(await response.json())
+          await refresh()
+        }} />
         <div className="space-y-4">
           {stopped && (
             <Card className="p-2">
@@ -273,6 +253,7 @@ export function HistoryView(
                 <span className="truncate">{p.company || "—"} · {fmtDate(p.created_at)}</span>
                 {statusBadge(p)}
                 {outcomeBadge(p.outcome_status)}
+                {p.outcome_status && <span className="text-xs">{p.evidence_status === "user_confirmed" ? "本人已確認憑證" : "憑證未核對"}</span>}
               </p>
             </div>
             {reviewable && (

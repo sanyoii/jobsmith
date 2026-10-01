@@ -297,7 +297,7 @@ def test_jobs_auto_falls_back_when_all_blocked(monkeypatch):
     monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["AI 工程師"])
     # 所有來源都被擋 → 無 job
     monkeypatch.setattr(server_mod, "search_all",
-                        lambda q, limit=10, pages=1, area=None: [SearchResult(source="104", blocked=True)])
+                        lambda q, sources=None, limit=10, pages=1, area=None: [SearchResult(source="104", blocked=True)])
     captured = {}
 
     def fake_rank(profile, jobs, top_k=12):
@@ -322,7 +322,7 @@ def test_jobs_auto_emits_profile_event(monkeypatch):
                                              skills=["Python"]))
     monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["AI 工程師"])
     monkeypatch.setattr(server_mod, "search_all",
-                        lambda q, limit=10, pages=1, area=None: [SearchResult(source="104", jobs=[
+                        lambda q, sources=None, limit=10, pages=1, area=None: [SearchResult(source="104", jobs=[
                             JobPosting(source="104", title="AI", company="C", url="u1")])])
     monkeypatch.setattr(server_mod, "rank_jobs",
                         lambda profile, jobs, top_k=12: [JobMatch(job=jobs[0], fit_score=80)])
@@ -344,7 +344,7 @@ def test_jobs_auto_reuses_posted_profile_json_without_reparsing(monkeypatch):
     monkeypatch.setattr(server_mod, "structure_profile", fail_structure_profile)
     monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["Python 後端"])
 
-    def fake_search(q, limit=10, pages=1, area=None):
+    def fake_search(q, sources=None, limit=10, pages=1, area=None):
         captured["query"] = q
         captured["area"] = area
         return [SearchResult(source="104", jobs=[
@@ -385,7 +385,7 @@ def test_jobs_auto_repairs_empty_profile_from_parser(monkeypatch):
     monkeypatch.setattr(server_mod, "structure_profile", server_mod.structure_profile)
     monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["工程師"])
     monkeypatch.setattr(server_mod, "search_all",
-                        lambda q, limit=15, pages=1, area=None: [SearchResult(source="104")])
+                        lambda q, sources=None, limit=15, pages=1, area=None: [SearchResult(source="104")])
     monkeypatch.setattr(server_mod, "_load_fallback_jobs", lambda: [])
 
     from app.agents import resume_eval as resume_eval_mod
@@ -746,7 +746,7 @@ def test_jobs_auto_streams_ranked_jobs(monkeypatch):
                         lambda text: Profile(name="王", summary="後端", raw_text=text))
     monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["AI 工程師"])
     monkeypatch.setattr(server_mod, "search_all",
-                        lambda q, limit=10, pages=1, area=None: [SearchResult(source="104", jobs=[
+                        lambda q, sources=None, limit=10, pages=1, area=None: [SearchResult(source="104", jobs=[
                             JobPosting(source="104", title="AI 工程師", company="某公司", url="u1")])])
     monkeypatch.setattr(server_mod, "rank_jobs",
                         lambda profile, jobs, top_k=12: [JobMatch(job=jobs[0], fit_score=88, reason="合適")])
@@ -779,7 +779,7 @@ def test_jobs_auto_passes_pages_to_search(monkeypatch):
     monkeypatch.setattr(server_mod, "rank_jobs", lambda profile, jobs, top_k=None: [])
     captured = {}
 
-    def fake_search(q, limit=15, pages=1, area=None):
+    def fake_search(q, sources=None, limit=15, pages=1, area=None):
         captured["pages"] = pages
         return [SearchResult(source="104", jobs=[])]
     monkeypatch.setattr(server_mod, "search_all", fake_search)
@@ -801,7 +801,7 @@ def test_jobs_auto_region_filters_uniformly(monkeypatch):
     monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["AI"])
     captured = {}
 
-    def fake_search(q, limit=15, pages=1, area=None):
+    def fake_search(q, sources=None, limit=15, pages=1, area=None):
         captured["area"] = area
         return [
             SearchResult(source="104", jobs=[  # 104：信任來源端 area，不再結果端過濾
@@ -831,7 +831,7 @@ def test_jobs_auto_work_mode_filters(monkeypatch):
                         lambda text: Profile(name="王", summary="後端", raw_text=text))
     monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["AI"])
 
-    def fake_search(q, limit=15, pages=1, area=None):
+    def fake_search(q, sources=None, limit=15, pages=1, area=None):
         return [
             SearchResult(source="104", jobs=[
                 JobPosting(source="104", title="全遠端職缺", company="A", url="u1", work_mode="remote"),
@@ -903,7 +903,7 @@ def test_jobs_auto_lists_company_jobs_in_separate_event(monkeypatch):
                         lambda text: Profile(name="王", summary="後端", raw_text=text))
     monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["AI 工程師"])
     monkeypatch.setattr(server_mod, "search_all",
-                        lambda q, limit=15, pages=1, area=None: [SearchResult(source="104", jobs=[
+                        lambda q, sources=None, limit=15, pages=1, area=None: [SearchResult(source="104", jobs=[
                             JobPosting(source="104", title="AI 工程師", company="某公司", url="u1")])])
     captured = {}
 
@@ -933,7 +933,7 @@ def test_jobs_auto_without_companies_skips_company_lookup(monkeypatch):
                         lambda text: Profile(name="王", summary="後端", raw_text=text))
     monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["AI 工程師"])
     monkeypatch.setattr(server_mod, "search_all",
-                        lambda q, limit=15, pages=1, area=None: [SearchResult(source="104", jobs=[
+                        lambda q, sources=None, limit=15, pages=1, area=None: [SearchResult(source="104", jobs=[
                             JobPosting(source="104", title="AI 工程師", company="某公司", url="u1")])])
     called = {"n": 0}
 
@@ -950,6 +950,49 @@ def test_jobs_auto_without_companies_skips_company_lookup(monkeypatch):
     assert called["n"] == 0  # 沒填公司名單就不查公司
 
 
+def test_jobs_auto_sources_param_restricts_search(monkeypatch):
+    """使用者選定的來源（sources 表單欄位）應原樣傳給 search_all，未知/空白值丟棄。"""
+    from app.models import Profile, SearchResult
+    monkeypatch.setattr(server_mod, "structure_profile",
+                        lambda text: Profile(name="王", summary="後端", raw_text=text))
+    monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["後端工程師"])
+    captured = {}
+
+    def fake_search(q, sources=None, limit=15, pages=1, area=None):
+        captured["sources"] = sources
+        return [SearchResult(source="104", jobs=[])]
+    monkeypatch.setattr(server_mod, "search_all", fake_search)
+    monkeypatch.setattr(server_mod, "rank_jobs", lambda profile, jobs, top_k=None: [])
+
+    client = TestClient(server_mod.app)
+    r = client.post("/api/jobs/auto", data={
+        "resume_text": "我的履歷",
+        "sources": "104, dejob,bogus",
+    })
+    assert r.status_code == 200
+    assert captured["sources"] == ["104", "dejob"]
+
+
+def test_jobs_auto_sources_param_empty_means_all(monkeypatch):
+    """未選來源（空字串）→ search_all 收到 sources=None，維持原本『全部來源』行為。"""
+    from app.models import Profile, SearchResult
+    monkeypatch.setattr(server_mod, "structure_profile",
+                        lambda text: Profile(name="王", summary="後端", raw_text=text))
+    monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["後端工程師"])
+    captured = {}
+
+    def fake_search(q, sources=None, limit=15, pages=1, area=None):
+        captured["sources"] = sources
+        return [SearchResult(source="104", jobs=[])]
+    monkeypatch.setattr(server_mod, "search_all", fake_search)
+    monkeypatch.setattr(server_mod, "rank_jobs", lambda profile, jobs, top_k=None: [])
+
+    client = TestClient(server_mod.app)
+    r = client.post("/api/jobs/auto", data={"resume_text": "我的履歷"})
+    assert r.status_code == 200
+    assert set(captured["sources"]) == set(server_mod.SEARCHABLE)
+
+
 def test_jobs_auto_custom_keywords_merged(monkeypatch):
     """自訂關鍵字排前、系統推導補後，SSE queries 事件用 custom 欄位標記哪些是自訂。"""
     from app.models import Profile, SearchResult
@@ -957,7 +1000,7 @@ def test_jobs_auto_custom_keywords_merged(monkeypatch):
                         lambda text: Profile(name="王", summary="後端", raw_text=text))
     monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["後端工程師", "Python 後端"])
     monkeypatch.setattr(server_mod, "search_all",
-                        lambda q, limit=15, pages=1, area=None: [SearchResult(source="104", jobs=[])])
+                        lambda q, sources=None, limit=15, pages=1, area=None: [SearchResult(source="104", jobs=[])])
     monkeypatch.setattr(server_mod, "rank_jobs", lambda profile, jobs, top_k=None: [])
 
     client = TestClient(server_mod.app)
@@ -978,7 +1021,7 @@ def test_jobs_auto_custom_keywords_dedupe_and_cap(monkeypatch):
                         lambda text: Profile(name="王", summary="後端", raw_text=text))
     monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["qa automation", "後端工程師"])
     monkeypatch.setattr(server_mod, "search_all",
-                        lambda q, limit=15, pages=1, area=None: [SearchResult(source="104", jobs=[])])
+                        lambda q, sources=None, limit=15, pages=1, area=None: [SearchResult(source="104", jobs=[])])
     monkeypatch.setattr(server_mod, "rank_jobs", lambda profile, jobs, top_k=None: [])
 
     client = TestClient(server_mod.app)
@@ -1022,3 +1065,56 @@ def test_resume_upload_guard_passes_normal_html():
     text, err = server_mod._resume_text_from_request(upload, "")
     assert err is None
     assert "王小明" in text
+
+
+def test_jobs_auto_normal_zero_does_not_load_demo(monkeypatch):
+    from app.models import Profile, SearchResult
+    monkeypatch.setattr(server_mod, "structure_profile", lambda text: Profile(name="QA", summary="QA Engineer", raw_text=text))
+    monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["QA 工程師"])
+    monkeypatch.setattr(server_mod, "search_all", lambda *args, **kw: [SearchResult(source="104")])
+    monkeypatch.setattr(server_mod, "_load_fallback_jobs", lambda: (_ for _ in ()).throw(AssertionError("no demo")))
+    events = _parse_sse(TestClient(server_mod.app).post("/api/jobs/auto", data={"resume_text": "QA", "sources": "104"}).text)
+    assert next(e for e in events if e["type"] == "search_empty")["reason"] == "no_matches"
+    assert next(e for e in events if e["type"] == "rank_start")["fallback"] is False
+    assert next(e for e in events if e["type"] == "source")["status"] == "no_matches"
+
+
+def test_jobs_auto_zero_after_filters_is_separate(monkeypatch):
+    from app.models import Profile, SearchResult, JobPosting
+    monkeypatch.setattr(server_mod, "structure_profile", lambda text: Profile(name="QA", summary="QA Engineer", raw_text=text))
+    monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["QA"])
+    job = JobPosting(source="104", title="QA Engineer", company="test", url="test", work_mode="onsite")
+    monkeypatch.setattr(server_mod, "search_all", lambda *args, **kw: [SearchResult(source="104", jobs=[job])])
+    events = _parse_sse(TestClient(server_mod.app).post("/api/jobs/auto", data={"resume_text": "QA", "sources": "104", "work_mode": "remote"}).text)
+    assert next(e for e in events if e["type"] == "search_empty")["reason"] == "filtered_out"
+    stat = next(e for e in events if e["type"] == "source")
+    assert stat["raw_count"] == 1 and stat["count"] == 0
+
+
+def test_jobs_auto_partial_failure(monkeypatch):
+    from app.models import Profile, SearchResult, JobPosting
+    monkeypatch.setattr(server_mod, "structure_profile", lambda text: Profile(name="QA", summary="QA Engineer", raw_text=text))
+    monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["QA 工程師"])
+    def search(query, **kw):
+        return [SearchResult(source="104", blocked=query != "QA 工程師")]
+    monkeypatch.setattr(server_mod, "search_all", search)
+    events = _parse_sse(TestClient(server_mod.app).post("/api/jobs/auto", data={"resume_text": "QA", "sources": "104"}).text)
+    assert next(e for e in events if e["type"] == "search_empty")["reason"] == "partial_failure"
+    assert next(e for e in events if e["type"] == "source")["status"] == "partial_failure"
+
+
+def test_jobs_auto_source_count_dedup_and_language_plan(monkeypatch):
+    from app.models import Profile, SearchResult, JobPosting
+    monkeypatch.setattr(server_mod, "structure_profile", lambda text: Profile(name="QA", summary="QA Engineer", raw_text=text))
+    monkeypatch.setattr(server_mod, "derive_queries", lambda profile: ["QA 工程師", "測試工程師"])
+    job = JobPosting(source="104", title="QA Engineer", company="test", url="https://example.test/qa")
+    def search(query, sources=None, **kw):
+        return [SearchResult(source=source, jobs=[job.model_copy(update={"source": source})]) for source in sources]
+    monkeypatch.setattr(server_mod, "search_all", search)
+    monkeypatch.setattr(server_mod, "rank_jobs", lambda *args, **kw: [])
+    events = _parse_sse(TestClient(server_mod.app).post("/api/jobs/auto", data={"resume_text": "QA", "sources": "104,linkedin"}).text)
+    plan = next(e for e in events if e["type"] == "queries")["by_source"]
+    assert plan["104"][0] == "QA 工程師"
+    assert plan["linkedin"][0] == "QA Engineer"
+    assert "測試工程師" not in plan["linkedin"]
+    assert all(e["count"] == 1 and e["raw_count"] == 1 for e in events if e["type"] == "source")

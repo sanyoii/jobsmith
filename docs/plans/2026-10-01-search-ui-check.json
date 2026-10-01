@@ -1,0 +1,13 @@
+{
+  "environment": "isolated headless Chromium; memory DB; controlled agents and source results; no live AI; no user Chrome",
+  "checks": {
+    "query_plan_visible": true,
+    "defi_single_fetch_note": true,
+    "failure_visible": true,
+    "zero_visible": true,
+    "desktop_no_horizontal_overflow": true,
+    "mobile_no_horizontal_overflow": true,
+    "normal_zero_message_visible": true,
+    "normal_zero_no_demo": true
+  }
+}

@@ -28,3 +28,10 @@ def http_get(url: str, *, referer: str | None = None, verify: bool = True, timeo
     if referer:
         headers["Referer"] = referer
     return requests.get(url, headers=headers, verify=verify, timeout=timeout)
+
+
+def http_post(url: str, *, json=None, headers: dict | None = None, timeout: int = TIMEOUT):
+    merged = {"User-Agent": UA, "Accept": "application/json, text/html"}
+    if headers:
+        merged.update(headers)
+    return requests.post(url, json=json, headers=merged, timeout=timeout)
