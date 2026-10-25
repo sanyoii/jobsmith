@@ -26,7 +26,7 @@ from app.graph import build_graph
 from app.intake.resume_parser import extract_text
 from app.models import Profile
 from app.sources import regions, work_modes
-from app.sources.registry import linkedin_search_url, search_all
+from app.sources.registry import linkedin_search_url, parse_sources, search_all
 from app.store import db as _appdb
 from app.store import history as _history
 from app.store import memory as _memory
@@ -421,6 +421,7 @@ def jobs_auto(
     pages: int = Form(default=2),
     region: str = Form(default=""),
     work_mode: str = Form(default=""),
+    sources: str = Form(default=""),
     task_id: str = Form(default=""),
 ):
     """履歷 → 自動找職缺：解析履歷 → 推導關鍵字 → 搜尋多站 →（選填）併入指定公司的開缺 → 依履歷排序。
@@ -429,11 +430,13 @@ def jobs_auto(
     pages：每個來源抓幾頁（使用者可在前端調整，預設 2、夾在 1–5）。
     region：搜尋前選定的縣市（逗號串接 key）。對所有來源一致生效——104 於來源端用 area
             代碼篩選（涵蓋更全），其餘來源在結果端用 location 過濾，使用者看到的就是同一份地區結果。
+    sources：使用者選定的職缺來源（逗號串接 key）。空 = 全部來源（維持原行為）。
     """
     pages = max(1, min(5, pages))
     region_keys = regions.parse_keys(region)
     area = regions.area_codes(region_keys)
     work_mode_keys = work_modes.parse_keys(work_mode)
+    source_keys = parse_sources(sources)
     text, text_error = _resume_text_from_request(file, resume_text)
     posted_profile, profile_error = (None, None) if text.strip() else _profile_from_json(profile_json)
     company_list = _parse_companies(companies)
@@ -480,7 +483,7 @@ def jobs_auto(
             for q in queries[:5]:
                 token.check()
                 yield _sse({"type": "progress", "step": "search", "message": f"搜尋「{q}」中…"})
-                for res in search_all(q, limit=15, pages=pages, area=area):
+                for res in search_all(q, sources=source_keys or None, limit=15, pages=pages, area=area):
                     token.check()
                     # 104 已於來源端用 area 篩過；其餘來源在結果端依 location 過濾，地區一致生效。
                     kept = [j for j in res.jobs

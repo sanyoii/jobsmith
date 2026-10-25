@@ -195,7 +195,8 @@ class ResumeAssessment(BaseModel):
 class JobPosting(BaseModel):
     """正規化後的單一職缺。"""
     source: str = Field(
-        description="104 | cake | yourator | linkedin | web3career | cryptojobslist | dejob | jobfrog | url")
+        description="104 | cake | yourator | linkedin | web3career | cryptojobslist | dejob | jobfrog | "
+                     "cryptocurrencyjobs | defijobs | url")
     title: str
     company: str
     location: str | None = None

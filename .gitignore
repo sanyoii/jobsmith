@@ -31,3 +31,6 @@ opendesign.png
 /resume_zh.pdf
 /技能缺口.png
 /*.pdf
+
+# Local agent runtime state.
+.claude-flow/

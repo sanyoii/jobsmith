@@ -7,7 +7,7 @@ import { resolveJd } from "../lib/resolveJd"
 import { newTaskId, stopTask } from "../lib/taskControl"
 import { profileDisplayName, profileSummary } from "../lib/profiles"
 import { JobList } from "../components/jobs/JobList"
-import { SRC_LABEL } from "../lib/sources"
+import { SRC_LABEL, SOURCES } from "../lib/sources"
 import { Card } from "../ui/Card"
 import { Button } from "../ui/Button"
 import { Badge } from "../ui/Badge"
@@ -77,6 +77,7 @@ export function JobSearchView(
   const [minFit, setMinFit] = useState(0)            // 適配色帶門檻（0/60/80）
   const [regions, setRegions] = useState<string[]>([])  // 搜尋地點（縣市 key；空 = 全台）
   const [workModes, setWorkModes] = useState<string[]>([])  // 搜尋工作形式（key；空 = 不限）
+  const [srcFilter, setSrcFilter] = useState<string[]>([])  // 搜尋來源（key；空 = 全部來源；命名避開既有 sources 狀態）
   const [linkedin, setLinkedin] = useState("")
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [blockedNote, setBlockedNote] = useState("")
@@ -115,6 +116,7 @@ export function JobSearchView(
       if (typeof s.pages === "number") setPages(s.pages)
       if (Array.isArray(s.regions)) setRegions(s.regions)
       if (Array.isArray(s.workModes)) setWorkModes(s.workModes)
+      if (Array.isArray(s.srcFilter)) setSrcFilter(s.srcFilter)
       if (s.profile) setProfile(s.profile as UserProfile)
       if (Array.isArray(s.jobs) && s.jobs.length) { setDone(true); setFormOpen(false) }
       else if (Array.isArray(s.companyJobs) && s.companyJobs.length) { setDone(true); setFormOpen(false) }
@@ -128,11 +130,11 @@ export function JobSearchView(
     try {
       localStorage.setItem(SNAP_KEY, JSON.stringify({
         text, companies, keywords, jobs, companyJobs, queries, customQueries, sources,
-        linkedin, fallback, searchedCompanies, profile, pages, regions, workModes,
+        linkedin, fallback, searchedCompanies, profile, pages, regions, workModes, srcFilter,
       }))
     } catch { /* localStorage 不可用/已滿則略過 */ }
   }, [done, jobs, companyJobs, queries, customQueries, sources, linkedin, fallback,
-      searchedCompanies, profile, text, companies, keywords, pages, regions, workModes])
+      searchedCompanies, profile, text, companies, keywords, pages, regions, workModes, srcFilter])
 
   // 回報是否已有結果，App 才知道要不要在右上角顯示「收合搜尋條件」鈕。
   useEffect(() => {
@@ -178,6 +180,9 @@ export function JobSearchView(
   function toggleWorkMode(k: string) {
     setWorkModes((ws) => (ws.includes(k) ? ws.filter((x) => x !== k) : [...ws, k]))
   }
+  function toggleSource(k: string) {
+    setSrcFilter((ss) => (ss.includes(k) ? ss.filter((x) => x !== k) : [...ss, k]))
+  }
 
   async function saveSearch(acc: SearchAcc, cs: string[]) {
     if (!acc.jobs.length && !acc.companyJobs.length) return
@@ -202,6 +207,7 @@ export function JobSearchView(
     form.append("pages", String(pages))
     if (regions.length) form.append("region", regions.join(","))
     if (workModes.length) form.append("work_mode", workModes.join(","))
+    if (srcFilter.length) form.append("sources", srcFilter.join(","))
   }
 
   async function go(
@@ -493,6 +499,28 @@ export function JobSearchView(
             })}
           </div>
           <p className="text-xs text-slate-400 mt-1">選了工作形式就只找符合的職缺；來源沒標示工作形式的職缺一律保留（無法判斷時不誤殺）。</p>
+        </div>
+
+        <div className="mt-4">
+          <label className="text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1.5">
+            <Layers className="w-4 h-4 text-slate-400" />職缺來源（選填、可多選；不選＝全部來源）
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" onClick={() => setSrcFilter([])} disabled={busy} aria-pressed={srcFilter.length === 0}
+              className={`px-2.5 py-1 rounded-lg border text-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 disabled:opacity-50 ${
+                srcFilter.length === 0 ? "bg-brand-600 text-white border-brand-600" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+              }`}>不限</button>
+            {SOURCES.map((s) => {
+              const on = srcFilter.includes(s.key)
+              return (
+                <button key={s.key} type="button" onClick={() => toggleSource(s.key)} disabled={busy} aria-pressed={on}
+                  className={`px-2.5 py-1 rounded-lg border text-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 disabled:opacity-50 ${
+                    on ? "bg-brand-600 text-white border-brand-600" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+                  }`}>{s.label}</button>
+              )
+            })}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">選了來源就只搜尋這些平台；不選則照舊跑全部來源。</p>
         </div>
 
         <div className="flex flex-wrap gap-2 mt-4 items-center">

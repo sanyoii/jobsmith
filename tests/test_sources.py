@@ -3,7 +3,9 @@ import json
 from app.sources import (
     source_104,
     source_cake,
+    source_cryptocurrencyjobs,
     source_cryptojobslist,
+    source_defijobs,
     source_dejob,
     source_jobfrog,
     source_linkedin,
@@ -495,3 +497,136 @@ def test_regions_match_location():
     assert regions.match_location("台中市西屯區", keys) is False     # 外地濾掉
     assert regions.match_location(None, keys) is True               # 缺地點寬鬆保留
     assert regions.match_location("台中市", []) is True             # 不限地區一律 True
+
+
+_CRYPTOCURRENCYJOBS_JSON = {
+    "hits": [{
+        "title": "Head of Platform Engineering",
+        "company": {"name": "Chronicle", "url": False},
+        "permalink": "/engineering/chronicle-head-of-platform-engineering/",
+        "remoteLocation": {"name": "Remote - Europe, UK", "url": "/remote/"},
+        "onsiteLocation": "",
+        "locationFilter": ["Remote", "Europe", "UK"],
+        "role": {"name": "Engineering"},
+        "employmentTypes": [{"name": "Full-Time"}],
+    }]
+}
+
+
+def test_source_cryptocurrencyjobs_parses(monkeypatch):
+    monkeypatch.setattr(source_cryptocurrencyjobs, "http_post",
+                         lambda *a, **k: FakeResp(json_data=_CRYPTOCURRENCYJOBS_JSON))
+    res = source_cryptocurrencyjobs.search("engineer", limit=5)
+    assert res.blocked is False
+    assert len(res.jobs) == 1
+    j = res.jobs[0]
+    assert j.title == "Head of Platform Engineering"
+    assert j.company == "Chronicle"        # company.url: False 不影響解析
+    assert j.url == "https://cryptocurrencyjobs.co/engineering/chronicle-head-of-platform-engineering/"
+    assert j.location == "Remote - Europe, UK"
+    assert j.work_mode == "remote"
+    assert j.snippet == "Engineering, Full-Time"
+
+
+def test_source_cryptocurrencyjobs_blocked_on_error(monkeypatch):
+    def boom(*a, **k):
+        raise ConnectionError("nope")
+    monkeypatch.setattr(source_cryptocurrencyjobs, "http_post", boom)
+    assert source_cryptocurrencyjobs.search("engineer").blocked is True
+
+
+def test_source_cryptocurrencyjobs_blocked_when_no_data(monkeypatch):
+    monkeypatch.setattr(source_cryptocurrencyjobs, "http_post",
+                         lambda *a, **k: FakeResp(json_data={"hits": []}))
+    res = source_cryptocurrencyjobs.search("engineer")
+    assert res.blocked is False            # Algolia 查無結果不是「被擋」，是真的沒有
+    assert res.jobs == []
+
+
+_DEFIJOBS_HTML = """
+<div class="w-dyn-item">
+  <a href="/jobs/solidity-engineer" class="job-link">
+    <div class="j-title">Solidity Engineer</div>
+    <div class="org">Aave</div>
+    <div class="location">Remote</div>
+    <div class="type">Full-time</div>
+    <div class="salary w-dyn-bind-empty"></div>
+  </a>
+</div>
+<div class="w-dyn-item">
+  <a href="/jobs/defi-analyst" class="job-link">
+    <div class="j-title">DeFi Analyst</div>
+    <div class="org">Uniswap</div>
+    <div class="location">New York</div>
+    <div class="type">Contract</div>
+    <div class="salary">$120k - $150k</div>
+  </a>
+</div>
+"""
+
+
+def test_source_defijobs_parses(monkeypatch):
+    monkeypatch.setattr(source_defijobs, "http_get", lambda *a, **k: FakeResp(text=_DEFIJOBS_HTML))
+    res = source_defijobs.search("", limit=5)
+    assert res.blocked is False
+    assert len(res.jobs) == 2
+    j = res.jobs[0]
+    assert j.title == "Solidity Engineer"
+    assert j.company == "Aave"
+    assert j.location == "Remote"
+    assert j.url == "https://www.defi.jobs/jobs/solidity-engineer"
+    assert j.salary is None                # w-dyn-bind-empty → 空字串正規化為 None
+    assert j.work_mode == "remote"
+    j2 = res.jobs[1]
+    assert j2.salary == "$120k - $150k"
+    assert j2.work_mode is None
+
+
+def test_source_defijobs_keyword_filter(monkeypatch):
+    monkeypatch.setattr(source_defijobs, "http_get", lambda *a, **k: FakeResp(text=_DEFIJOBS_HTML))
+    matching = source_defijobs.search("solidity", limit=5)
+    assert matching.blocked is False
+    assert len(matching.jobs) == 1
+    assert matching.jobs[0].company == "Aave"
+
+    no_match = source_defijobs.search("nonexistent token xyz", limit=5)
+    assert no_match.blocked is False       # 沒有職缺符合關鍵字不算「被擋」
+    assert no_match.jobs == []
+
+
+def test_source_defijobs_blocked_on_error(monkeypatch):
+    def boom(*a, **k):
+        raise ConnectionError("nope")
+    monkeypatch.setattr(source_defijobs, "http_get", boom)
+    assert source_defijobs.search("engineer").blocked is True
+
+
+def test_source_defijobs_blocked_when_no_data(monkeypatch):
+    monkeypatch.setattr(source_defijobs, "http_get", lambda *a, **k: FakeResp(text="<html>no jobs</html>"))
+    assert source_defijobs.search("engineer").blocked is True
+
+
+def test_registry_parse_sources():
+    from app.sources import registry
+    assert registry.parse_sources("104, dejob,bogus,104") == ["104", "dejob"]  # 去空白、丟未知、去重
+    assert registry.parse_sources("") == []
+    assert registry.parse_sources(None) == []
+
+
+def test_registry_search_all_filters_sources(monkeypatch):
+    from app.models import SearchResult
+    from app.sources import registry
+    called = []
+
+    def fake_a(kw, limit=15, pages=1, area=None):
+        called.append("a")
+        return SearchResult(source="a")
+
+    def fake_b(kw, limit=15, pages=1, area=None):
+        called.append("b")
+        return SearchResult(source="b")
+
+    monkeypatch.setattr(registry, "SEARCHABLE", {"a": fake_a, "b": fake_b})
+    results = registry.search_all("AI", sources=["a"])
+    assert [r.source for r in results] == ["a"]
+    assert called == ["a"]
